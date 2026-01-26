@@ -1,14 +1,19 @@
+// This file defines the WalletSetupScreen, which provides options for the user to either
+// create a new wallet or import an existing one using a recovery phrase.
 import 'package:flutter/material.dart';
 import './create_wallet_screen.dart';
 import './import_wallet_screen.dart';
 
+/// WalletSetupScreen is a StatelessWidget that presents the user with two options:
+/// 1. Create New Wallet: Navigates to the CreateWalletFlow.
+/// 2. Import Wallet: Navigates to the ImportWalletScreen.
 class WalletSetupScreen extends StatelessWidget {
   const WalletSetupScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // match app theme
+      backgroundColor: Colors.black, // Matches the overall app theme.
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -16,6 +21,7 @@ class WalletSetupScreen extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Title for the wallet setup section.
                 const Text(
                   "Wallet Setup",
                   style: TextStyle(
@@ -26,6 +32,7 @@ class WalletSetupScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 32),
 
+                // Button to navigate to the Create New Wallet flow.
                 ElevatedButton(
                   onPressed: () {
                     Navigator.push(
@@ -40,6 +47,7 @@ class WalletSetupScreen extends StatelessWidget {
 
                 const SizedBox(height: 16),
 
+                // Button to navigate to the Import Wallet screen.
                 OutlinedButton(
                   onPressed: () {
                     Navigator.push(

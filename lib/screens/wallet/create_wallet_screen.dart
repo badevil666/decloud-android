@@ -1,8 +1,12 @@
+// This file defines the CreateWalletFlow, which handles the process of generating a new wallet.
+// It uses WalletService to create the wallet and displays the generated mnemonic phrase for backup.
 import 'package:flutter/material.dart';
 import '../../core/crypto/wallet_service.dart';
 import '../../widgets/mnemonic_backup_widget.dart';
 //import './wallet_home_screen.dart';
 
+/// CreateWalletFlow is a StatefulWidget that orchestrates the creation of a new cryptocurrency wallet.
+/// It generates a mnemonic phrase and guides the user to back it up.
 class CreateWalletFlow extends StatefulWidget {
   const CreateWalletFlow({super.key});
 
@@ -11,15 +15,20 @@ class CreateWalletFlow extends StatefulWidget {
 }
 
 class _CreateWalletFlowState extends State<CreateWalletFlow> {
+  // Stores the generated mnemonic phrase for the new wallet.
   String? mnemonic;
+  // Flag to indicate if the wallet creation process is in progress.
   bool loading = true;
 
   @override
   void initState() {
     super.initState();
+    // Initiates the wallet creation process when the state is initialized.
     _createWallet();
   }
 
+  /// Creates a new wallet using [WalletService] and stores the generated mnemonic.
+  /// Updates [mnemonic] and [loading] accordingly.
   Future<void> _createWallet() async {
     final result = await WalletService.createWallet();
     setState(() {
@@ -31,22 +40,22 @@ class _CreateWalletFlowState extends State<CreateWalletFlow> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.black, // Sets the background color of the screen.
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text("Backup Recovery Phrase"),
+        title: const Text("Backup Recovery Phrase"), // Title of the app bar.
       ),
       body: SafeArea(
         child: loading
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(child: CircularProgressIndicator()) // Shows a loading indicator during wallet creation.
             : MnemonicBackupWidget(
-                mnemonic: mnemonic!,
+                mnemonic: mnemonic!, // Displays the generated mnemonic for backup.
                 onConfirmed: () {
-                  // wipe mnemonic from memory
+                  // Wipes the mnemonic from memory after confirmation for security.
                   mnemonic = null;
 
-                  // IMPORTANT: do NOT kill the entire app navigation
+                  // Navigates back to the previous screen (WalletGateScreen) after successful backup.
                   Navigator.pop(context);
                   // WalletGateScreen will re-evaluate and show WalletHome
                 },

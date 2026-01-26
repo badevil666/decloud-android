@@ -49,27 +49,41 @@ The wallet is designed as part of a decentralized storage ecosystem where users 
 
 ```text
 lib/
-├── core/
-│   ├── crypto/
-│   │   ├── mnemonic_service.dart
-│   │   ├── wallet_service.dart
+├── core
+│   ├── config
+│   │   └── blockchain_config.dart
+│   ├── constants.dart
+│   ├── crypto
+│   │   ├── erc20_abi.dart
 │   │   ├── eth_service.dart
-│   │   └── erc20_abi.dart
-│   ├── storage/
-│   │   └── secure_storage.dart
-│   └── config/
-│       └── blockchain_config.example.dart
-│
-├── screens/
-│   ├── wallet/
-│   │   ├── wallet_gate_screen.dart
-│   │   ├── wallet_home_screen.dart
-│   │   ├── create_wallet_screen.dart
-│   │   └── import_wallet_screen.dart
-│   └── navigation/
-│       └── main_navigation.dart
-│
-├── widgets/
-│   └── mnemonic_backup_widget.dart
-│
-└── main.dart
+│   │   ├── keystore_service.dart
+│   │   ├── mnemonic_service.dart
+│   │   └── wallet_service.dart
+│   └── storage
+│       └── secure_storage.dart
+├── main.dart
+├── screens
+│   ├── files
+│   │   └── filesScreen.dart
+│   ├── home
+│   │   └── homeScreen.dart
+│   ├── mainNavigation.dart
+│   ├── settings
+│   ├── upload
+│   │   └── uploadScreen.dart
+│   └── wallet
+│       ├── create_wallet_screen.dart
+│       ├── import_wallet_screen.dart
+│       ├── wallet_gate_screen.dart
+│       ├── wallet_home_screen.dart
+│       └── wallet_setup_screen.dart
+└── widgets
+    ├── AnimateCloud.dart
+    ├── animatedCloudLottie.dart
+    ├── animated_bottom_bar.dart
+    ├── animated_stat_card.dart
+    ├── drifting_asteroids.dart
+    ├── mnemonic_backup_widget.dart
+    ├── night_sky_background.dart
+    ├── twinkling_stars_painter.dart
+    └── uploadButton.dart

@@ -1,16 +1,75 @@
-# decloud_android
+# Decloud Android Wallet
 
-A new Flutter project.
+A **non-custodial Android wallet** built with **Flutter** for the **Decloud** project.  
+This wallet securely manages user keys, connects to the **Ethereum Sepolia testnet**, and displays balances of the **DCLD ERC-20 token**.
 
-## Getting Started
+The wallet is designed as part of a decentralized storage ecosystem where users earn and spend tokens for storage services.
 
-This project is a starting point for a Flutter application.
+---
 
-A few resources to get you started if this is your first Flutter project:
+## 🚀 Features
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- 🔐 **Non-custodial wallet**
+  - BIP-39 mnemonic generation
+  - BIP-44 Ethereum key derivation
+  - Private keys never leave the device
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- 🛡 **Secure local storage**
+  - Encrypted storage using platform keystore
+  - No backend custody
+
+- 🌐 **Ethereum integration**
+  - Sepolia testnet support
+  - ERC-20 token interaction (DCLD)
+  - Real on-chain balance fetching
+
+- 💰 **Wallet UI**
+  - Animated wallet balance card
+  - Wallet address display
+  - Clean, modern Flutter UI
+
+- 🔄 **Wallet management**
+  - Create new wallet
+  - Import wallet using recovery phrase
+  - Disconnect / reset wallet (development-ready)
+
+---
+
+## 🧱 Tech Stack
+
+- Flutter (Dart)
+- web3dart
+- Ethereum (Sepolia Testnet)
+- ERC-20 Smart Contracts
+- Flutter Secure Storage
+
+---
+
+## 📁 Project Structure
+
+```text
+lib/
+├── core/
+│   ├── crypto/
+│   │   ├── mnemonic_service.dart
+│   │   ├── wallet_service.dart
+│   │   ├── eth_service.dart
+│   │   └── erc20_abi.dart
+│   ├── storage/
+│   │   └── secure_storage.dart
+│   └── config/
+│       └── blockchain_config.example.dart
+│
+├── screens/
+│   ├── wallet/
+│   │   ├── wallet_gate_screen.dart
+│   │   ├── wallet_home_screen.dart
+│   │   ├── create_wallet_screen.dart
+│   │   └── import_wallet_screen.dart
+│   └── navigation/
+│       └── main_navigation.dart
+│
+├── widgets/
+│   └── mnemonic_backup_widget.dart
+│
+└── main.dart

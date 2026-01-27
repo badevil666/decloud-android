@@ -1,16 +1,8 @@
-// This file defines the WalletHomeScreen, which displays the user's wallet address and DCLD balance.
-// It fetches wallet data from secure storage and uses EthService to get the token balance.
-// The UI includes an animated balance card and a button to send tokens.
 import 'package:flutter/material.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../core/constants.dart';
 import '../../core/crypto/eth_service.dart';
 
-// TODO: replace with your actual ERC-20 / RPC service
-// import '../../core/crypto/eth_service.dart';
-
-/// WalletHomeScreen is a StatefulWidget that displays the user's wallet information.
-/// It shows the wallet address, current DCLD balance, and a progress indicator.
 class WalletHomeScreen extends StatefulWidget {
   const WalletHomeScreen({super.key});
 
@@ -18,57 +10,38 @@ class WalletHomeScreen extends StatefulWidget {
   State<WalletHomeScreen> createState() => _WalletHomeScreenState();
 }
 
+enum WalletSection { transactions, contracts }
+
 class _WalletHomeScreenState extends State<WalletHomeScreen>
     with SingleTickerProviderStateMixin {
-  // Animation controller for the wallet balance card.
   late AnimationController _controller;
 
-  // The wallet address of the current user.
   String? address;
-  // The current DCLD balance of the wallet.
   double balance = 0.0;
-  // An optional maximum balance for the progress indicator.
   double maxBalance = 10.0;
-  // Flag to indicate if wallet data is still being loaded.
   bool loading = true;
+
+  // ✅ STATE BELONGS HERE
+  WalletSection _activeSection = WalletSection.transactions;
 
   @override
   void initState() {
     super.initState();
 
-    // Initialize the animation controller.
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
     );
 
-    // Load wallet data when the state is initialized.
     _loadWalletData();
   }
 
-  /// Loads the wallet address from secure storage and fetches the DCLD balance.
-  /// Updates [address], [balance], and [loading] accordingly.
   Future<void> _loadWalletData() async {
     final addr = await SecureStorage.read('wallet_address');
+    if (addr == null) return;
 
-    if (addr == null) {
-      return;
-    }
-
-    // ===============================
-    // 🔥 FETCH REAL BALANCE HERE
-    // ===============================
-    // Example (pseudo-code):
-    //
-    // final rawBalance = await EthService.getTokenBalance(addr);
-    // final decimals = await EthService.getTokenDecimals();
-    // final realBalance =
-    //     rawBalance / BigInt.from(10).pow(decimals);
-    //
-    // For now, simulate network delay + value:
     await Future.delayed(const Duration(milliseconds: 500));
     final realBalance = await EthService.getTokenBalance(addr);
-    debugPrint("DCLD balance: $realBalance");
 
     setState(() {
       address = addr;
@@ -85,125 +58,277 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
     super.dispose();
   }
 
+  Widget _buildSectionSwitcher() {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.white12,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          _sectionButton(
+            label: "Transactions",
+            selected: _activeSection == WalletSection.transactions,
+            onTap: () {
+              setState(() {
+                _activeSection = WalletSection.transactions;
+              });
+            },
+          ),
+          _sectionButton(
+            label: "Smart Contracts",
+            selected: _activeSection == WalletSection.contracts,
+            onTap: () {
+              setState(() {
+                _activeSection = WalletSection.contracts;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionButton({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? Colors.black : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.white70,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // Sets the background color of the screen.
+      backgroundColor: Colors.black,
       body: SafeArea(
         child: loading
-            ? const Center(child: CircularProgressIndicator()) // Shows a loading indicator while data is being fetched.
-            : Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: AnimatedBuilder(
-                    animation: _controller,
-                    builder: (context, child) {
-                      final scale = Curves.easeOutBack.transform(
-                        _controller.value.clamp(0.0, 1.0),
-                      );
-                      return Transform.scale(scale: scale, child: child);
-                    },
-                    // The main wallet card displaying address, balance, and progress.
-                    child: Container(
-                      padding: const EdgeInsets.all(22),
-                      decoration: BoxDecoration(
-                        gradient: kPrimaryGradient,
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withAlpha(50),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
+            ? const Center(child: CircularProgressIndicator())
+            : Padding(
+                padding: const EdgeInsets.all(20),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AnimatedBuilder(
+                        animation: _controller,
+                        builder: (context, child) {
+                          final scale = Curves.easeOutBack.transform(
+                            _controller.value.clamp(0.0, 1.0),
+                          );
+                          return Transform.scale(
+                            scale: scale,
+                            alignment: Alignment.topCenter,
+                            child: child,
+                          );
+                        },
+                        child: _walletCard(),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // ===== WALLET ADDRESS DISPLAY =====
-                          const Text(
-                            "Wallet Address",
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            address!,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-
-                          const SizedBox(height: 18),
-
-                          // ===== WALLET BALANCE DISPLAY =====
-                          const Text(
-                            "Wallet Balance",
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            "$balance DCLD",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-
-                          const SizedBox(height: 16),
-
-                          // ===== BALANCE PROGRESS INDICATOR =====
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: LinearProgressIndicator(
-                              value: (balance / maxBalance).clamp(0.0, 1.0),
-                              minHeight: 8,
-                              backgroundColor: Colors.white24,
-                              valueColor: const AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          // ===== ACTION BUTTON (SEND TOKENS) =====
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: ElevatedButton(
-                              onPressed: () {
-                                // TODO: Implement Send / Receive token flow.
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.black,
-                                elevation: 0,
-                                shape: const StadiumBorder(),
-                              ),
-                              child: const Text(
-                                "Send Tokens",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                      const SizedBox(height: 20),
+                      _buildSectionSwitcher(),
+                      const SizedBox(height: 20),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        child: _activeSection == WalletSection.transactions
+                            ? const _TransactionsSection()
+                            : const _ContractsSection(),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
       ),
+    );
+  }
+
+  Widget _walletCard() {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: kPrimaryGradient,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(50),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Wallet Address",
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            address!,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            "Wallet Balance",
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "$balance DCLD",
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: LinearProgressIndicator(
+              value: (balance / maxBalance).clamp(0.0, 1.0),
+              minHeight: 8,
+              backgroundColor: Colors.white24,
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton(
+              onPressed: () {},
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black,
+                elevation: 0,
+                shape: const StadiumBorder(),
+              ),
+              child: const Text(
+                "Send Tokens",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransactionsSection extends StatelessWidget {
+  const _TransactionsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const ValueKey("transactions"),
+      children: const [
+        _TransactionTile(address: "0xA3f9...92C1", amount: 234.0),
+        _TransactionTile(address: "0x91bE...7D2A", amount: -1324.0),
+        _TransactionTile(address: "0xC44D...E18F", amount: 56.75),
+      ],
+    );
+  }
+}
+
+class _TransactionTile extends StatelessWidget {
+  final String address;
+  final double amount;
+
+  const _TransactionTile({required this.address, required this.amount});
+
+  @override
+  Widget build(BuildContext context) {
+    final incoming = amount >= 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white12,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: incoming ? Colors.green : Colors.red,
+            child: Icon(
+              incoming ? Icons.call_received : Icons.call_made,
+              color: Colors.white,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  incoming ? "Received" : "Sent",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  address,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            "${incoming ? '+' : ''}${amount.toStringAsFixed(2)} DCLD",
+            style: TextStyle(
+              color: incoming ? Colors.greenAccent : Colors.redAccent,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContractsSection extends StatelessWidget {
+  const _ContractsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      key: ValueKey("contracts"),
+      children: [
+        Text(
+          "No smart contracts connected",
+          style: TextStyle(color: Colors.white70),
+        ),
+      ],
     );
   }
 }

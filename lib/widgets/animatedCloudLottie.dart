@@ -21,7 +21,7 @@ class _AnimatedUploadCloudLottieState extends State<AnimatedUploadCloudLottie>
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 60),
+      duration: const Duration(seconds: 20),
     )..repeat();
   }
 
@@ -39,11 +39,12 @@ class _AnimatedUploadCloudLottieState extends State<AnimatedUploadCloudLottie>
         final t = _controller.value;
 
         // Floating motion (sine wave)
-        final floatY = math.sin(t * math.pi) * 120;
+        final floatY = math.sin(t * math.pi) * 60;
 
-        // Arrow animation
-        //final arrowOffset = (1 - t) * 15;
-        final arrowOpacity = (1 - t).clamp(0.0, 1.0);
+        // Arrow animation: slides up and fades in/out repeatedly
+        final arrowT = (t * 10) % 1.0; // Loops 10 times during the 20s cycle
+        final arrowOffset = (1 - arrowT) * 15 - 5; // Slides from +10 to -5
+        final arrowOpacity = math.sin(arrowT * math.pi).clamp(0.0, 1.0);
 
         return Transform.translate(
           offset: Offset(0, floatY),
@@ -77,7 +78,7 @@ class _AnimatedUploadCloudLottieState extends State<AnimatedUploadCloudLottie>
 
               // ⬆️ Upload Arrow (slide + fade like Lottie)
               Transform.translate(
-                offset: Offset(0, floatY),
+                offset: Offset(0, arrowOffset),
                 child: Opacity(
                   opacity: arrowOpacity,
                   child: Icon(

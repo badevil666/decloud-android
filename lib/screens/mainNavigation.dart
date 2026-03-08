@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import '../core/constants.dart';
+import '../core/auth_notifier.dart';
 
 import 'home/homeScreen.dart';
 import 'upload/uploadScreen.dart';
 import 'files/filesScreen.dart';
 import 'wallet/wallet_gate_screen.dart';
 import '../widgets/animated_bottom_bar.dart';
+import '../screens/profile/profile_screen.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
@@ -15,7 +17,11 @@ class MainNavigation extends StatefulWidget {
 }
 
 class _MainNavigationState extends State<MainNavigation> {
+  static const _walletTabIndex = 3;
+
   int _selectedIndex = 2;
+  final _authNotifier = AuthNotifier();
+  String? _prevWalletAddress;
 
   // ORDER MUST MATCH BottomNavigationBar items
   final List<Widget> _screens = [
@@ -23,7 +29,30 @@ class _MainNavigationState extends State<MainNavigation> {
     UploadScreen(),
     HomeScreen(),
     WalletGateScreen(),
+    ProfileScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _prevWalletAddress = _authNotifier.walletAddress;
+    _authNotifier.addListener(_onAuthChanged);
+  }
+
+  @override
+  void dispose() {
+    _authNotifier.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    final current = _authNotifier.walletAddress;
+    if (_prevWalletAddress == null && current != null) {
+      // Wallet just got connected — switch to Wallet tab
+      setState(() => _selectedIndex = _walletTabIndex);
+    }
+    _prevWalletAddress = current;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +102,11 @@ class _MainNavigationState extends State<MainNavigation> {
               icon: Icon(Icons.wallet_outlined),
               activeIcon: Icon(Icons.wallet),
               label: 'Wallet',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.supervised_user_circle_outlined),
+              activeIcon: Icon(Icons.supervised_user_circle_outlined),
+              label: 'Profile',
             ),
           ],
         ),

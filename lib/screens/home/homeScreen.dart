@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/constants.dart';
 import '../../widgets/twinkling_stars_painter.dart';
+import '../wallet/wallet_gate_screen.dart';
+import '../files/filesScreen.dart';
+import '../upload/uploadScreen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,6 +15,20 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
+  final actions = [
+    {"icon": Icons.upload_file, "label": "Upload", "page": UploadScreen()},
+    {"icon": Icons.history, "label": "Recent Files", "page": FilesScreen()},
+    {
+      "icon": Icons.swap_horiz,
+      "label": "Transactions",
+      "page": WalletGateScreen(),
+    },
+    {
+      "icon": Icons.description,
+      "label": "Contracts",
+      "page": WalletGateScreen(),
+    },
+  ];
 
   @override
   void initState() {
@@ -41,7 +58,7 @@ class _HomeScreenState extends State<HomeScreen>
         // Foreground UI (unchanged)
         SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -60,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen>
                     );
                   },
                   child: const Text(
-                    "Hello, Alex 👋",
+                    "Decloud",
                     style: TextStyle(
                       fontSize: 26,
                       fontWeight: FontWeight.w700,
@@ -69,14 +86,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                 ),
-
-                const SizedBox(height: 6),
-                Text(
-                  "Welcome back, your storage looks good today",
-                  style: TextStyle(fontSize: 14, color: kTextSecondary),
-                ),
-
-                const SizedBox(height: 28),
+                const SizedBox(height: 15),
 
                 // 💾 Storage Card
                 AnimatedBuilder(
@@ -95,9 +105,14 @@ class _HomeScreenState extends State<HomeScreen>
                       borderRadius: BorderRadius.circular(24),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
+                          color: const Color.fromARGB(
+                            255,
+                            255,
+                            254,
+                            254,
+                          ).withAlpha(150),
+                          blurRadius: 25,
+                          offset: const Offset(0, 0),
                         ),
                       ],
                     ),
@@ -147,14 +162,19 @@ class _HomeScreenState extends State<HomeScreen>
                           child: ElevatedButton(
                             onPressed: () {},
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.black,
-                              elevation: 0,
+                              backgroundColor: const Color.fromARGB(
+                                255,
+                                12,
+                                12,
+                                12,
+                              ),
+                              elevation: 200,
                               shape: const StadiumBorder(),
                             ),
                             child: const Text(
                               "Upgrade Plan",
                               style: TextStyle(
-                                color: Colors.white,
+                                color: Color.fromARGB(255, 247, 245, 245),
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -176,15 +196,26 @@ class _HomeScreenState extends State<HomeScreen>
                     color: Color.fromARGB(255, 200, 200, 200),
                   ),
                 ),
-                const SizedBox(height: 16),
 
+                //const SizedBox(height: 1),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _animatedAction(0, Icons.cloud_upload_rounded, "Upload"),
-                    _animatedAction(1, Icons.folder_open_rounded, "Files"),
-                    _animatedAction(2, Icons.star_rounded, "Rewards"),
-                  ],
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: List.generate(actions.length, (i) {
+                    final action = actions[i];
+                    return _animatedAction(
+                      i,
+                      action["icon"] as IconData,
+                      action["label"] as String,
+                      () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => action["page"] as Widget,
+                          ),
+                        );
+                      },
+                    );
+                  }),
                 ),
               ],
             ),
@@ -195,13 +226,17 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // 🔥 Staggered action animation (SAFE)
-  Widget _animatedAction(int index, IconData icon, String label) {
+  Widget _animatedAction(
+    int index,
+    IconData icon,
+    String label,
+    VoidCallback onTap,
+  ) {
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
         final delay = index * 0.2;
         final raw = ((_controller.value - delay) / 0.6).clamp(0.0, 1.0);
-
         final scale = Curves.easeOutBack.transform(raw);
 
         return Transform.scale(
@@ -209,44 +244,54 @@ class _HomeScreenState extends State<HomeScreen>
           child: Opacity(opacity: raw, child: child),
         );
       },
-      child: _buildActionItem(icon, label),
+      child: _buildActionItem(icon, label, onTap),
     );
   }
 
-  Widget _buildActionItem(IconData icon, String label) {
-    return Column(
-      children: [
-        Container(
-          height: 56,
-          width: 56,
-          decoration: BoxDecoration(
-            color: kCardColor,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.4),
-                blurRadius: 14,
-                offset: const Offset(0, 8),
+  Widget _buildActionItem(IconData icon, String label, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Column(
+        children: [
+          Container(
+            height: 56,
+            width: 56,
+            decoration: BoxDecoration(
+              color: kCardColor,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color.fromARGB(
+                    255,
+                    250,
+                    248,
+                    248,
+                  ).withAlpha(200),
+                  blurRadius: 14,
+                  offset: const Offset(0, 0),
+                ),
+              ],
+            ),
+            child: Center(
+              child: ShaderMask(
+                shaderCallback: (bounds) =>
+                    kPrimaryGradient.createShader(bounds),
+                child: Icon(icon, size: 26, color: Colors.white),
               ),
-            ],
-          ),
-          child: Center(
-            child: ShaderMask(
-              shaderCallback: (bounds) => kPrimaryGradient.createShader(bounds),
-              child: Icon(icon, size: 26, color: Colors.white),
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: kTextSecondary,
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: kTextSecondary,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

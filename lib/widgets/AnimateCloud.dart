@@ -25,8 +25,8 @@ class _AnimatedUploadCloudState extends State<AnimatedUploadCloud>
     )..repeat(reverse: true);
 
     _floatAnimation = Tween<double>(
-      begin: -12,
-      end: 12,
+      begin: -1,
+      end: 1,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
 
     _pulseAnimation = Tween<double>(

@@ -54,4 +54,4 @@ windows/flutter/ephemeral/
 .env.*
 
 # DO NOT COMMIT REAL CONFIG
-lib/core/config/blockchain_config.dart
+#lib/core/config/blockchain_config.dart

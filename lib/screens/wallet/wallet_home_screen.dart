@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../core/storage/secure_storage.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants.dart';
+import '../../core/storage/secure_storage.dart';
 import '../../core/crypto/eth_service.dart';
+import '../../core/auth_notifier.dart';
 
 class WalletHomeScreen extends StatefulWidget {
   const WalletHomeScreen({super.key});
@@ -20,6 +22,7 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
   double balance = 0.0;
   double maxBalance = 10.0;
   bool loading = true;
+  bool _addressCopied = false;
 
   // ✅ STATE BELONGS HERE
   WalletSection _activeSection = WalletSection.transactions;
@@ -43,6 +46,8 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
     await Future.delayed(const Duration(milliseconds: 500));
     final realBalance = await EthService.getTokenBalance(addr);
 
+    if (!mounted) return;
+    
     setState(() {
       address = addr;
       balance = realBalance;
@@ -131,6 +136,16 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      const Text(
+                        "Wallet",
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                          color: Color.fromARGB(200, 200, 200, 200),
+                        ),
+                      ),
+                      const SizedBox(height: 15),
                       AnimatedBuilder(
                         animation: _controller,
                         builder: (context, child) {
@@ -145,9 +160,9 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
                         },
                         child: _walletCard(),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 10),
                       _buildSectionSwitcher(),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 10),
                       AnimatedSwitcher(
                         duration: const Duration(milliseconds: 250),
                         child: _activeSection == WalletSection.transactions
@@ -170,9 +185,9 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withAlpha(50),
+            color: const Color.fromARGB(255, 249, 249, 249).withAlpha(200),
             blurRadius: 20,
-            offset: const Offset(0, 10),
+            offset: const Offset(0, 0),
           ),
         ],
       ),
@@ -181,23 +196,51 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
         children: [
           const Text(
             "Wallet Address",
-            style: TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            address!,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
+            style: TextStyle(
+              color: Color.fromARGB(179, 2, 1, 1),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 1),
+          GestureDetector(
+            onTap: () async {
+              await Clipboard.setData(ClipboardData(text: address!));
+              setState(() => _addressCopied = true);
+              await Future.delayed(const Duration(seconds: 2));
+              if (mounted) setState(() => _addressCopied = false);
+            },
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    address!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  _addressCopied ? Icons.check_rounded : Icons.copy_rounded,
+                  color: Colors.white70,
+                  size: 16,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 1),
           const Text(
             "Wallet Balance",
-            style: TextStyle(color: Colors.white70, fontSize: 13),
+            style: TextStyle(
+              color: Color.fromARGB(179, 10, 9, 9),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 1),
           Text(
             "$balance DCLD",
             style: const TextStyle(
@@ -206,34 +249,75 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: LinearProgressIndicator(
-              value: (balance / maxBalance).clamp(0.0, 1.0),
-              minHeight: 8,
-              backgroundColor: Colors.white24,
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Align(
-            alignment: Alignment.centerRight,
-            child: ElevatedButton(
-              onPressed: () {},
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.black,
-                elevation: 0,
-                shape: const StadiumBorder(),
-              ),
-              child: const Text(
-                "Send Tokens",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
+          const SizedBox(height: 15),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              ElevatedButton(
+                onPressed: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: const Color(0xFF181A20),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      title: const Text(
+                        'Disconnect Wallet',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                      ),
+                      content: const Text(
+                        'Are you sure you want to disconnect? You will need your recovery phrase to reconnect.',
+                        style: TextStyle(color: Colors.white70, height: 1.4),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text(
+                            'Disconnect',
+                            style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    await AuthNotifier().disconnectWallet();
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white24,
+                  elevation: 0,
+                  shape: const StadiumBorder(),
+                ),
+                child: const Text(
+                  "Disconnect",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
+              ElevatedButton(
+                onPressed: () {},
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  elevation: 0,
+                  shape: const StadiumBorder(),
+                ),
+                child: const Text(
+                  "Send Tokens",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

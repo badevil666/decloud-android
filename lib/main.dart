@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'screens/mainNavigation.dart';
+import 'core/auth_notifier.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AuthNotifier().init();
   runApp(const DecloudApp());
 }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../core/constants.dart';
 import '../../widgets/animatedCloudLottie.dart';
 import '../../widgets/uploadButton.dart';
@@ -118,9 +119,18 @@ class _UploadScreenState extends State<UploadScreen> {
                 Icons.insert_drive_file_rounded,
                 "Upload File",
                 "Choose a file from device",
-                () {
+                () async {
                   Navigator.pop(context);
-                  debugPrint("Upload File");
+                  FilePickerResult? result = await FilePicker.platform.pickFiles(
+                    allowMultiple: true,
+                  );
+
+                  if (result != null) {
+                    List<String> filePaths = result.paths.whereType<String>().toList();
+                    debugPrint("Selected files: $filePaths");
+                  } else {
+                    debugPrint("File selection canceled");
+                  }
                 },
               ),
 
@@ -128,9 +138,15 @@ class _UploadScreenState extends State<UploadScreen> {
                 Icons.folder_open_rounded,
                 "Upload Folder",
                 "Upload multiple files",
-                () {
+                () async {
                   Navigator.pop(context);
-                  debugPrint("Upload Folder");
+                  String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+
+                  if (selectedDirectory != null) {
+                    debugPrint("Selected directory: $selectedDirectory");
+                  } else {
+                    debugPrint("Folder selection canceled");
+                  }
                 },
               ),
 

@@ -99,7 +99,7 @@ class FilesScreen extends StatelessWidget {
             height: 44,
             width: 44,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
+              color: color.withAlpha(35),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: color),

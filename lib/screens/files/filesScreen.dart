@@ -1,9 +1,46 @@
 import 'package:flutter/material.dart';
 import '../../core/constants.dart';
+import '../../core/files/file_record.dart';
+import '../../core/files/files_service.dart';
 import '../../widgets/twinkling_stars_painter.dart';
 
-class FilesScreen extends StatelessWidget {
+class FilesScreen extends StatefulWidget {
   const FilesScreen({super.key});
+
+  @override
+  State<FilesScreen> createState() => _FilesScreenState();
+}
+
+class _FilesScreenState extends State<FilesScreen> {
+  List<FileRecord> _files = [];
+  bool _loading = true;
+  String? _error;
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchFiles();
+  }
+
+  Future<void> _fetchFiles() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final files = await FilesService.getFiles();
+      if (mounted) setState(() => _files = files);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  List<FileRecord> get _filtered => _query.isEmpty
+      ? _files
+      : _files.where((f) => f.filename.toLowerCase().contains(_query.toLowerCase())).toList();
 
   @override
   Widget build(BuildContext context) {
@@ -15,20 +52,25 @@ class FilesScreen extends StatelessWidget {
         elevation: 0,
         backgroundColor: kBackgroundColor,
         foregroundColor: kTextPrimary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _fetchFiles,
+            tooltip: 'Refresh',
+          ),
+        ],
       ),
       body: Stack(
         children: [
-          // 🌌 Night sky – stars only
           const Positioned.fill(child: TwinklingStars()),
-
-          // Foreground content (unchanged)
           Column(
             children: [
-              // 🔍 Search Bar
+              // Search bar
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: TextField(
                   style: const TextStyle(color: kTextPrimary),
+                  onChanged: (v) => setState(() => _query = v),
                   decoration: InputDecoration(
                     hintText: "Search files...",
                     hintStyle: TextStyle(color: kTextSecondary),
@@ -45,31 +87,8 @@ class FilesScreen extends StatelessWidget {
 
               const SizedBox(height: 16),
 
-              // 🏷 Filters
-              _buildFilters(),
-
-              const SizedBox(height: 10),
-
-              // 📂 File List
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(20),
-                  children: [
-                    _buildFileItem(
-                      "Project_Brief_V2.pdf",
-                      "5.2 MB",
-                      Icons.picture_as_pdf_rounded,
-                      const Color(0xFF2CB1FF),
-                    ),
-                    _buildFileItem(
-                      "Holiday_Snaps.zip",
-                      "88 MB",
-                      Icons.folder_zip_rounded,
-                      const Color(0xFFBB2BC5),
-                    ),
-                  ],
-                ),
-              ),
+              // File list
+              Expanded(child: _buildBody()),
             ],
           ),
         ],
@@ -77,8 +96,54 @@ class FilesScreen extends StatelessWidget {
     );
   }
 
-  // 📄 File Row
-  Widget _buildFileItem(String title, String size, IconData icon, Color color) {
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off_rounded, color: Colors.redAccent, size: 48),
+              const SizedBox(height: 16),
+              Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.redAccent)),
+              const SizedBox(height: 24),
+              OutlinedButton.icon(
+                onPressed: _fetchFiles,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_filtered.isEmpty) {
+      return Center(
+        child: Text(
+          _query.isEmpty ? 'No files uploaded yet.' : 'No results for "$_query".',
+          style: TextStyle(color: kTextSecondary),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _fetchFiles,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(20),
+        itemCount: _filtered.length,
+        itemBuilder: (_, i) => _buildFileItem(_filtered[i]),
+      ),
+    );
+  }
+
+  Widget _buildFileItem(FileRecord file) {
+    final sizeLabel = _formatSize(file.filesize);
+    final statusColor = _statusColor(file.status);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(14),
@@ -87,7 +152,7 @@ class FilesScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.35),
+            color: Colors.black.withAlpha(90),
             blurRadius: 18,
             offset: const Offset(0, 10),
           ),
@@ -99,10 +164,10 @@ class FilesScreen extends StatelessWidget {
             height: 44,
             width: 44,
             decoration: BoxDecoration(
-              color: color.withAlpha(35),
+              color: Colors.blueAccent.withAlpha(35),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: color),
+            child: const Icon(Icons.insert_drive_file_rounded, color: Colors.blueAccent),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -110,55 +175,57 @@ class FilesScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
-                  style: const TextStyle(
-                    color: kTextPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
+                  file.filename,
+                  style: const TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  size,
-                  style: TextStyle(color: kTextSecondary, fontSize: 12),
+                Row(
+                  children: [
+                    Text(sizeLabel, style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    Text('·', style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    Text('${file.numberOfChunks} chunks', style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    Text('·', style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    Text('×${file.replicationFactor}', style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                  ],
                 ),
               ],
             ),
           ),
-          Icon(Icons.more_vert, color: kTextSecondary),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: statusColor.withAlpha(40),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              file.status,
+              style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w600),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // 🏷 Filters
-  Widget _buildFilters() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.only(left: 20),
-      child: Row(
-        children: ["All Files", "Documents", "Images", "Videos"].map((filter) {
-          final bool isSelected = filter == "All Files";
+  String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
 
-          return Container(
-            margin: const EdgeInsets.only(right: 10),
-            child: ChoiceChip(
-              label: Text(
-                filter,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : kTextSecondary,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              selected: isSelected,
-              backgroundColor: kCardColor,
-              selectedColor: const Color(0xFF6A5CFF),
-              side: BorderSide.none,
-              onSelected: (_) {},
-            ),
-          );
-        }).toList(),
-      ),
-    );
+  Color _statusColor(String status) {
+    switch (status.toUpperCase()) {
+      case 'ALLOCATED': return Colors.greenAccent;
+      case 'PENDING':   return Colors.orangeAccent;
+      case 'FAILED':    return Colors.redAccent;
+      default:          return kTextSecondary;
+    }
   }
 }

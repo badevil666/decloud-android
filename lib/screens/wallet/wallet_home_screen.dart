@@ -40,14 +40,36 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
   }
 
   Future<void> _loadWalletData() async {
+    print('[WalletHome] _loadWalletData started');
+
     final addr = await SecureStorage.read('wallet_address');
-    if (addr == null) return;
+    print('[WalletHome] wallet_address from storage: $addr');
+
+    if (addr == null) {
+      print('[WalletHome] No wallet address found - showing empty state');
+      if (mounted) {
+        setState(() {
+          address = '';
+          loading = false;
+        });
+      }
+      return;
+    }
 
     await Future.delayed(const Duration(milliseconds: 500));
-    final realBalance = await EthService.getTokenBalance(addr);
+
+    double realBalance = 0.0;
+    try {
+      print('[WalletHome] Fetching token balance for $addr...');
+      realBalance = await EthService.getTokenBalance(addr);
+      print('[WalletHome] Balance fetched: $realBalance DCLD');
+    } catch (e, st) {
+      print('[WalletHome] Failed to fetch balance: $e\n$st');
+    }
 
     if (!mounted) return;
-    
+
+    print('[WalletHome] Setting state - address: $addr, balance: $realBalance');
     setState(() {
       address = addr;
       balance = realBalance;

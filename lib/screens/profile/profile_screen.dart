@@ -6,6 +6,8 @@ import '../../core/auth/auth_service.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../core/config/api_config_service.dart';
 import '../../core/config/api_config.dart';
+import '../../core/config/relay_config_service.dart';
+import '../../core/config/relay_config.dart' as relay_defaults;
 import '../wallet/wallet_setup_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -19,6 +21,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _authNotifier = AuthNotifier();
   bool _isDeCloudConnected = false;
   String _apiUrl = '';
+  String _relayUrl = '';
 
   @override
   void initState() {
@@ -36,10 +39,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadDeCloudState() async {
     final token = await AuthService.getToken();
     final url = await ApiConfigService.getBaseUrl();
+    final relay = await RelayConfigService.getBaseUrl();
     if (mounted) {
       setState(() {
         _isDeCloudConnected = token != null;
         _apiUrl = url;
+        _relayUrl = relay;
       });
     }
   }
@@ -90,6 +95,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body = _DeCloudProfileView(
         walletAddress: walletAddress,
         apiUrl: _apiUrl,
+        relayUrl: _relayUrl,
         onSignOut: _signOutDeCloud,
         onDisconnectWallet: () => _authNotifier.disconnectWallet(),
       );
@@ -313,12 +319,14 @@ class _ConnectDeCloudView extends StatelessWidget {
 class _DeCloudProfileView extends StatefulWidget {
   final String walletAddress;
   final String apiUrl;
+  final String relayUrl;
   final VoidCallback onSignOut;
   final VoidCallback onDisconnectWallet;
 
   const _DeCloudProfileView({
     required this.walletAddress,
     required this.apiUrl,
+    required this.relayUrl,
     required this.onSignOut,
     required this.onDisconnectWallet,
   });
@@ -420,6 +428,13 @@ class _DeCloudProfileViewState extends State<_DeCloudProfileView> {
               iconColor: Colors.white54,
               label: 'API',
               value: widget.apiUrl,
+              smallValue: true,
+            ),
+            _InfoRow(
+              icon: Icons.cable_rounded,
+              iconColor: Colors.white54,
+              label: 'Relay',
+              value: widget.relayUrl,
               smallValue: true,
             ),
           ]),
@@ -688,29 +703,35 @@ class _ApiSettingsSheet extends StatefulWidget {
 }
 
 class _ApiSettingsSheetState extends State<_ApiSettingsSheet> {
-  late TextEditingController _controller;
+  late TextEditingController _apiController;
+  late TextEditingController _relayController;
   bool _loading = true;
   bool _saved = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController();
+    _apiController = TextEditingController();
+    _relayController = TextEditingController();
     _load();
   }
 
   Future<void> _load() async {
     final url = await ApiConfigService.getBaseUrl();
+    final relay = await RelayConfigService.getBaseUrl();
     if (mounted) {
-      _controller.text = url;
+      _apiController.text = url;
+      _relayController.text = relay;
       setState(() => _loading = false);
     }
   }
 
   Future<void> _save() async {
-    final url = _controller.text.trim();
-    if (url.isEmpty) return;
+    final url = _apiController.text.trim();
+    final relay = _relayController.text.trim();
+    if (url.isEmpty || relay.isEmpty) return;
     await ApiConfigService.setBaseUrl(url);
+    await RelayConfigService.setBaseUrl(relay);
     if (mounted) {
       setState(() => _saved = true);
       await Future.delayed(const Duration(seconds: 1));
@@ -720,12 +741,19 @@ class _ApiSettingsSheetState extends State<_ApiSettingsSheet> {
 
   Future<void> _reset() async {
     await ApiConfigService.resetToDefault();
-    if (mounted) setState(() => _controller.text = apiBaseUrl);
+    await RelayConfigService.resetToDefault();
+    if (mounted) {
+      setState(() {
+        _apiController.text = apiBaseUrl;
+        _relayController.text = relay_defaults.relayBaseUrl;
+      });
+    }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _apiController.dispose();
+    _relayController.dispose();
     super.dispose();
   }
 
@@ -746,46 +774,34 @@ class _ApiSettingsSheetState extends State<_ApiSettingsSheet> {
             children: [
               const Expanded(
                 child: Text(
-                  'API Settings',
+                  'Server Settings',
                   style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
                 ),
               ),
               IconButton(
                 onPressed: _reset,
                 icon: const Icon(Icons.refresh_rounded, color: Colors.white54, size: 20),
-                tooltip: 'Reset to default',
+                tooltip: 'Reset to defaults',
               ),
             ],
           ),
           const SizedBox(height: 4),
           const Text(
-            'Set the base URL for the Decloud API. Changes take effect immediately on the next request.',
+            'Changes take effect immediately on the next request.',
             style: TextStyle(color: kTextSecondary, fontSize: 13, height: 1.4),
           ),
           const SizedBox(height: 20),
           if (_loading)
             const Center(child: CircularProgressIndicator())
           else ...[
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white10,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: kDividerColor),
-              ),
-              child: TextField(
-                controller: _controller,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                decoration: const InputDecoration(
-                  hintText: 'https://api.example.com',
-                  hintStyle: TextStyle(color: kTextSecondary),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  border: InputBorder.none,
-                ),
-              ),
-            ),
+            Text('API URL', style: TextStyle(color: kTextSecondary, fontSize: 13)),
+            const SizedBox(height: 8),
+            _urlField(controller: _apiController, hint: 'http://localhost:3000'),
             const SizedBox(height: 16),
+            Text('Relay URL', style: TextStyle(color: kTextSecondary, fontSize: 13)),
+            const SizedBox(height: 8),
+            _urlField(controller: _relayController, hint: 'http://localhost:8080'),
+            const SizedBox(height: 20),
             SizedBox(
               height: 48,
               child: ElevatedButton(
@@ -803,6 +819,28 @@ class _ApiSettingsSheetState extends State<_ApiSettingsSheet> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _urlField({required TextEditingController controller, required String hint}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kDividerColor),
+      ),
+      child: TextField(
+        controller: controller,
+        style: const TextStyle(color: Colors.white, fontSize: 14),
+        keyboardType: TextInputType.url,
+        autocorrect: false,
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: const TextStyle(color: kTextSecondary),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          border: InputBorder.none,
+        ),
       ),
     );
   }

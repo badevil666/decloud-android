@@ -10,7 +10,9 @@ const int _nonceBytes = 32;
 
 /// Runs entirely in the caller's isolate — call via [Isolate.run] or [compute]
 /// to keep the UI thread free for large files.
-Future<FileManifest> processFile(
+/// Returns both the [FileManifest] and the raw [chunks] so the caller can
+/// stream them to peers without re-reading the file.
+Future<ProcessResult> processFile(
   String filePath,
   int numberOfChunks,
   int replicationFactor,
@@ -62,7 +64,7 @@ Future<FileManifest> processFile(
     chunkInfos.add(ChunkInfo(hash: chunkHash, size: chunk.length, nonces: nonces));
   }
 
-  return FileManifest(
+  final manifest = FileManifest(
     filename: filename,
     filesize: filesize,
     fileHash: fileHash,
@@ -71,4 +73,6 @@ Future<FileManifest> processFile(
     chunkInfo: chunkInfos,
     endDate: endDate,
   );
+
+  return ProcessResult(manifest: manifest, chunks: chunks);
 }

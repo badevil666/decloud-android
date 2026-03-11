@@ -1,3 +1,38 @@
+import 'dart:typed_data';
+
+class ProcessResult {
+  final FileManifest manifest;
+  final List<Uint8List> chunks;
+
+  const ProcessResult({required this.manifest, required this.chunks});
+}
+
+class PeerAssignment {
+  final String token;
+  final List<int> chunkIndexes;
+
+  const PeerAssignment({required this.token, required this.chunkIndexes});
+
+  factory PeerAssignment.fromJson(Map<String, dynamic> json) => PeerAssignment(
+        token: json['token'] as String,
+        chunkIndexes: (json['chunkIndexes'] as List<dynamic>).cast<int>(),
+      );
+}
+
+class UploadResponse {
+  final String fileId;
+  final Map<String, PeerAssignment> peers;
+
+  const UploadResponse({required this.fileId, required this.peers});
+
+  factory UploadResponse.fromJson(Map<String, dynamic> json) => UploadResponse(
+        fileId: json['fileId'] as String,
+        peers: (json['peers'] as Map<String, dynamic>).map(
+          (id, v) => MapEntry(id, PeerAssignment.fromJson(v as Map<String, dynamic>)),
+        ),
+      );
+}
+
 class NonceHash {
   final String nonce; // hex-encoded 32-byte random nonce
   final String hash;  // hex SHA-256(chunk_bytes ++ nonce_bytes)

@@ -8,6 +8,7 @@ class FileRecord {
   final int numberOfChunks;
   final String createdAt;
   final String endDate;
+  final bool isAvailable;
 
   const FileRecord({
     required this.fileId,
@@ -19,6 +20,7 @@ class FileRecord {
     required this.numberOfChunks,
     required this.createdAt,
     required this.endDate,
+    required this.isAvailable,
   });
 
   factory FileRecord.fromJson(Map<String, dynamic> json) => FileRecord(
@@ -31,6 +33,7 @@ class FileRecord {
         numberOfChunks: _toInt(json['numberOfChunks']),
         createdAt: json['createdAt'] as String,
         endDate: json['endDate'] as String,
+        isAvailable:json['isAvailable'] as bool? ?? false,
       );
 
   static int _toInt(dynamic v) =>

@@ -4,6 +4,7 @@ import '../../core/files/file_record.dart';
 import '../../core/files/files_service.dart';
 import '../../widgets/twinkling_stars_painter.dart';
 
+
 class FilesScreen extends StatefulWidget {
   const FilesScreen({super.key});
 
@@ -40,7 +41,10 @@ class _FilesScreenState extends State<FilesScreen> {
 
   List<FileRecord> get _filtered => _query.isEmpty
       ? _files
-      : _files.where((f) => f.filename.toLowerCase().contains(_query.toLowerCase())).toList();
+      : _files
+      .where((f) =>
+      f.filename.toLowerCase().contains(_query.toLowerCase()))
+      .toList();
 
   @override
   Widget build(BuildContext context) {
@@ -107,15 +111,21 @@ class _FilesScreenState extends State<FilesScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.cloud_off_rounded, color: Colors.redAccent, size: 48),
+              const Icon(Icons.cloud_off_rounded,
+                  color: Colors.redAccent, size: 48),
               const SizedBox(height: 16),
-              Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.redAccent)),
+              Text(_error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.redAccent)),
               const SizedBox(height: 24),
               OutlinedButton.icon(
                 onPressed: _fetchFiles,
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Retry'),
-                style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white24),
+                ),
               ),
             ],
           ),
@@ -141,18 +151,23 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Widget _buildFileItem(FileRecord file) {
-    final sizeLabel = _formatSize(file.filesize);
+    final sizeLabel   = _formatSize(file.filesize);
     final statusColor = _statusColor(file.status);
+
+    // availability-driven visuals
+    final tileColor = file.isAvailable ? kCardColor : kCardColor.withAlpha(100);
+    final iconColor = file.isAvailable ? Colors.blueAccent : Colors.grey;
+    final textColor = file.isAvailable ? kTextPrimary : kTextSecondary;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: kCardColor,
+        color: tileColor,
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withAlpha(90),
+            color: Colors.black.withAlpha(file.isAvailable ? 90 : 40),
             blurRadius: 18,
             offset: const Offset(0, 10),
           ),
@@ -160,43 +175,88 @@ class _FilesScreenState extends State<FilesScreen> {
       ),
       child: Row(
         children: [
+          // ── File icon ────────────────────────────────────────────────────
           Container(
             height: 44,
             width: 44,
             decoration: BoxDecoration(
-              color: Colors.blueAccent.withAlpha(35),
+              color: iconColor.withAlpha(35),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.insert_drive_file_rounded, color: Colors.blueAccent),
+            child: Icon(Icons.insert_drive_file_rounded, color: iconColor),
           ),
+
           const SizedBox(width: 14),
+
+          // ── File info (takes all remaining space) ─────────────────────
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Filename
                 Text(
                   file.filename,
-                  style: const TextStyle(color: kTextPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+                  style: TextStyle(
+                    color: textColor,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
+
                 const SizedBox(height: 4),
+
+                // Size · chunks · replication
                 Row(
                   children: [
-                    Text(sizeLabel, style: TextStyle(color: kTextSecondary, fontSize: 12)),
-                    const SizedBox(width: 8),
-                    Text('·', style: TextStyle(color: kTextSecondary, fontSize: 12)),
-                    const SizedBox(width: 8),
-                    Text('${file.numberOfChunks} chunks', style: TextStyle(color: kTextSecondary, fontSize: 12)),
-                    const SizedBox(width: 8),
-                    Text('·', style: TextStyle(color: kTextSecondary, fontSize: 12)),
-                    const SizedBox(width: 8),
-                    Text('×${file.replicationFactor}', style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                    Text(sizeLabel,
+                        style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                    Text(' · ',
+                        style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                    Text('${file.numberOfChunks} chunks',
+                        style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                    Text(' · ',
+                        style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                    Text('×${file.replicationFactor}',
+                        style: TextStyle(color: kTextSecondary, fontSize: 12)),
+                  ],
+                ),
+
+                const SizedBox(height: 6),
+
+                // Availability indicator inline
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      file.isAvailable
+                          ? Icons.cloud_done_rounded
+                          : Icons.cloud_off_rounded,
+                      size: 12,
+                      color: file.isAvailable
+                          ? Colors.greenAccent
+                          : Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      file.isAvailable ? 'Available' : 'Unavailable',
+                      style: TextStyle(
+                        color: file.isAvailable
+                            ? Colors.greenAccent
+                            : Colors.grey,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ],
             ),
           ),
+
           const SizedBox(width: 8),
+
+          // ── Status badge (right side only) ────────────────────────────
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
@@ -205,7 +265,11 @@ class _FilesScreenState extends State<FilesScreen> {
             ),
             child: Text(
               file.status,
-              style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: statusColor,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -216,7 +280,8 @@ class _FilesScreenState extends State<FilesScreen> {
   String _formatSize(int bytes) {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    if (bytes < 1024 * 1024 * 1024)
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 

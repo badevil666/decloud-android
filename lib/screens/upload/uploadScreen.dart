@@ -1,6 +1,11 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:http/http.dart' as http;
+import '../../core/auth/auth_service.dart';
+import '../../core/config/api_config_service.dart';
 import '../../core/constants.dart';
 import '../../core/upload/upload_service.dart';
 import '../../widgets/animatedCloudLottie.dart';
@@ -17,6 +22,29 @@ class UploadScreen extends StatefulWidget {
 class _UploadScreenState extends State<UploadScreen> {
   List<String> _selectedFiles = [];
   String? _selectedDirectory;
+  int? _onlinePeers;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPeerCount();
+  }
+
+  Future<void> _fetchPeerCount() async {
+    try {
+      final baseUrl = await ApiConfigService.getBaseUrl();
+      final token = await AuthService.getToken();
+      if (token == null) return;
+      final res = await http.get(
+        Uri.parse('$baseUrl/client/peers/online'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final count = (jsonDecode(res.body) as Map<String, dynamic>)['count'] as int;
+        if (mounted) setState(() => _onlinePeers = count);
+      }
+    } catch (_) {}
+  }
 
   void _clearSelection() {
     setState(() {
@@ -72,7 +100,56 @@ class _UploadScreenState extends State<UploadScreen> {
                         ),
                       ),
 
-                      const SizedBox(height: 36),
+                      const SizedBox(height: 20),
+
+                      // Online peers badge
+                      GestureDetector(
+                        onTap: _fetchPeerCount,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.07),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: _onlinePeers != null && _onlinePeers! > 0
+                                  ? Colors.greenAccent.withOpacity(0.4)
+                                  : Colors.white24,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: _onlinePeers == null
+                                      ? Colors.white38
+                                      : _onlinePeers! > 0
+                                          ? Colors.greenAccent
+                                          : Colors.redAccent,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _onlinePeers == null
+                                    ? 'Checking network...'
+                                    : '$_onlinePeers peer${_onlinePeers != 1 ? 's' : ''} online',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: _onlinePeers != null && _onlinePeers! > 0
+                                      ? Colors.greenAccent
+                                      : Colors.white60,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 28),
 
                       // 🚀 Upload Button → Opens dropdown
                       UploadButton(
@@ -331,10 +408,26 @@ class _UploadScreenState extends State<UploadScreen> {
     );
   }
 
+  // Compute total size of selected files in bytes
+  int _computeTotalSizeBytes({List<String>? filePaths, String? directoryPath}) {
+    try {
+      if (filePaths != null) {
+        return filePaths.fold(0, (sum, p) => sum + File(p).lengthSync());
+      } else if (directoryPath != null) {
+        return Directory(directoryPath)
+            .listSync(recursive: true)
+            .whereType<File>()
+            .fold(0, (sum, f) => sum + f.lengthSync());
+      }
+    } catch (_) {}
+    return 0;
+  }
+
   // ============================
   // ⚙️ STORAGE SETTINGS
   // ============================
   void _showStorageSettings(BuildContext context, {List<String>? filePaths, String? directoryPath}) {
+    final int totalSizeBytes = _computeTotalSizeBytes(filePaths: filePaths, directoryPath: directoryPath);
     int replicationFactor = 3;
     int numberOfChunks = 3;
     DateTime? endDate = DateTime.now().add(const Duration(days: 30));
@@ -403,7 +496,9 @@ class _UploadScreenState extends State<UploadScreen> {
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                       ),
                       onChanged: (value) {
-                        replicationFactor = int.tryParse(value) ?? 3;
+                        setState(() {
+                          replicationFactor = int.tryParse(value) ?? 3;
+                        });
                       },
                     ),
 
@@ -457,8 +552,27 @@ class _UploadScreenState extends State<UploadScreen> {
                           },
                         );
                         if (picked != null) {
+                          final TimeOfDay? pickedTime = await showTimePicker(
+                            context: context,
+                            initialTime: TimeOfDay.fromDateTime(endDate ?? picked),
+                            builder: (context, child) {
+                              return Theme(
+                                data: ThemeData.dark().copyWith(
+                                  colorScheme: ColorScheme.dark(
+                                    primary: Colors.blueAccent,
+                                    onPrimary: Colors.white,
+                                    surface: kCardColor,
+                                    onSurface: Colors.white,
+                                  ),
+                                ),
+                                child: child!,
+                              );
+                            },
+                          );
                           setState(() {
-                            endDate = picked;
+                            endDate = pickedTime != null
+                                ? DateTime(picked.year, picked.month, picked.day, pickedTime.hour, pickedTime.minute)
+                                : picked;
                           });
                         }
                       },
@@ -472,7 +586,9 @@ class _UploadScreenState extends State<UploadScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              endDate != null ? "${endDate!.toLocal()}".split(' ')[0] : "Select Date",
+                              endDate != null
+                                  ? "${endDate!.toLocal()}".split('.')[0]
+                                  : "Select Date & Time",
                               style: const TextStyle(color: Colors.white, fontSize: 16),
                             ),
                             const Icon(Icons.calendar_month_rounded, color: Colors.blueAccent),
@@ -481,7 +597,70 @@ class _UploadScreenState extends State<UploadScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 20),
+
+                    // Cost Estimate
+                    Builder(builder: (_) {
+                      if (totalSizeBytes == 0 || endDate == null) {
+                        return const SizedBox.shrink();
+                      }
+                      final now = DateTime.now();
+                      final durationSeconds = endDate!.difference(now).inSeconds;
+                      if (durationSeconds <= 0) return const SizedBox.shrink();
+                      // 0.0000001 DCLD per KB per second
+                      final pricePerDealDcld = (totalSizeBytes / 1024) * durationSeconds * 0.0000001;
+                      final totalCostDcld = pricePerDealDcld * replicationFactor;
+                      final peerEscrowDcld = pricePerDealDcld / 5;
+
+                      String _fmt(double v) {
+                        if (v == 0) return '0 DCLD';
+                        if (v < 0.000001) return '${(v * 1e9).toStringAsFixed(4)} nDCLD';
+                        if (v < 0.001) return '${(v * 1e6).toStringAsFixed(4)} µDCLD';
+                        return '${v.toStringAsFixed(6)} DCLD';
+                      }
+
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: kBackgroundColor,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Cost Estimate",
+                              style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text("Total cost", style: TextStyle(color: kTextSecondary, fontSize: 13)),
+                                Text(
+                                  "~${_fmt(totalCostDcld)}",
+                                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text("Peer escrow / deal", style: TextStyle(color: kTextSecondary, fontSize: 13)),
+                                Text(
+                                  "~${_fmt(peerEscrowDcld)}",
+                                  style: const TextStyle(color: Colors.blueAccent, fontSize: 13),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+
+                    const SizedBox(height: 20),
 
                     // Confirm Button
                     SizedBox(
@@ -511,19 +690,13 @@ class _UploadScreenState extends State<UploadScreen> {
                           if (paths.isEmpty) return;
                           Navigator.pop(context);
 
-                          // Show processing indicator
+                          final progressController = StreamController<String>();
+
                           showDialog(
                             context: this.context,
                             barrierDismissible: false,
-                            builder: (_) => const AlertDialog(
-                              backgroundColor: kCardColor,
-                              content: Row(
-                                children: [
-                                  CircularProgressIndicator(),
-                                  SizedBox(width: 20),
-                                  Text('Processing file…', style: TextStyle(color: Colors.white)),
-                                ],
-                              ),
+                            builder: (_) => _UploadProgressDialog(
+                              stream: progressController.stream,
                             ),
                           );
 
@@ -534,10 +707,13 @@ class _UploadScreenState extends State<UploadScreen> {
                                 numberOfChunks: numberOfChunks,
                                 replicationFactor: replicationFactor,
                                 endDate: endDate ?? DateTime.now().add(const Duration(days: 30)),
+                                onProgress: progressController.add,
                               );
                             }
+                            progressController.close();
+                            await Future.delayed(const Duration(milliseconds: 600));
                             if (mounted) {
-                              Navigator.of(this.context).pop(); // dismiss dialog
+                              Navigator.of(this.context).pop();
                               ScaffoldMessenger.of(this.context).showSnackBar(
                                 const SnackBar(
                                   content: Text('Upload successful!'),
@@ -547,8 +723,9 @@ class _UploadScreenState extends State<UploadScreen> {
                               _clearSelection();
                             }
                           } catch (e) {
+                            progressController.close();
                             if (mounted) {
-                              Navigator.of(this.context).pop(); // dismiss dialog
+                              Navigator.of(this.context).pop();
                               ScaffoldMessenger.of(this.context).showSnackBar(
                                 SnackBar(
                                   content: Text('Upload failed: $e'),
@@ -644,6 +821,169 @@ class _UploadScreenState extends State<UploadScreen> {
             Icon(Icons.chevron_right, color: kTextSecondary),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─── Upload progress dialog ───────────────────────────────────────────────────
+
+class _Step {
+  final String key;
+  String label;
+  bool done;
+  _Step({required this.key, required this.label, this.done = false});
+}
+
+class _UploadProgressDialog extends StatefulWidget {
+  final Stream<String> stream;
+  const _UploadProgressDialog({required this.stream});
+
+  @override
+  State<_UploadProgressDialog> createState() => _UploadProgressDialogState();
+}
+
+class _UploadProgressDialogState extends State<_UploadProgressDialog> {
+  final List<_Step> _steps = [];
+  late final StreamSubscription<String> _sub;
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.stream.listen(_onEvent, onDone: _onDone);
+  }
+
+  static ({String key, String label}) _parse(String event) {
+    if (event == 'reading') {
+      return (key: 'file', label: 'Reading file');
+    }
+    if (event.startsWith('chunking:')) {
+      final n = event.split(':')[1];
+      return (key: 'chunk', label: 'Splitting into $n chunks');
+    }
+    if (event.startsWith('hash:')) {
+      final p = event.split(':');
+      return (key: 'hash', label: 'SHA-256 hashing chunk ${p[1]} / ${p[2]}');
+    }
+    if (event.startsWith('nonces:')) {
+      final p = event.split(':');
+      return (key: 'nonces', label: 'Generating proof nonces  chunk ${p[1]} / ${p[2]}');
+    }
+    if (event == 'merkle') {
+      return (key: 'merkle', label: 'Building Merkle tree');
+    }
+    if (event == 'manifest') {
+      return (key: 'manifest', label: 'Sending manifest to network');
+    }
+    if (event == 'confirming') {
+      return (key: 'confirm', label: 'Confirming peer allocation');
+    }
+    if (event.startsWith('peers:')) {
+      final n = event.split(':')[1];
+      return (key: 'relay', label: 'Uploading to $n peers');
+    }
+    if (event.startsWith('peer:')) {
+      final p = event.split(':');
+      return (key: 'relay', label: 'Uploading to peers  (${p[1]} / ${p[2]} done)');
+    }
+    return (key: event, label: event);
+  }
+
+  void _onEvent(String event) {
+    final parsed = _parse(event);
+    setState(() {
+      final existingIdx = _steps.indexWhere((s) => s.key == parsed.key && !s.done);
+      if (existingIdx >= 0) {
+        _steps[existingIdx].label = parsed.label;
+      } else {
+        for (final s in _steps) {
+          s.done = true;
+        }
+        _steps.add(_Step(key: parsed.key, label: parsed.label));
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _onDone() {
+    setState(() {
+      for (final s in _steps) {
+        s.done = true;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: kCardColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text(
+        'Uploading',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 17),
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 300,
+        child: _steps.isEmpty
+            ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+            : ListView.builder(
+                controller: _scroll,
+                itemCount: _steps.length,
+                itemBuilder: (_, i) {
+                  final step = _steps[i];
+                  final isActive = !step.done;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 7),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: isActive
+                              ? const CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.cyanAccent,
+                                )
+                              : const Icon(
+                                  Icons.check_circle_rounded,
+                                  color: Colors.greenAccent,
+                                  size: 20,
+                                ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            step.label,
+                            style: TextStyle(
+                              color: isActive ? Colors.white : Colors.white54,
+                              fontSize: 13,
+                              fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
       ),
     );
   }

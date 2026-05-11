@@ -4,6 +4,10 @@ import '../../core/constants.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../core/crypto/eth_service.dart';
 import '../../core/auth_notifier.dart';
+import '../../core/deals/deal_service.dart';
+
+// SecureStorage key for auto-sign preference
+const _kAutoSignKey = 'auto_sign_deals';
 
 class WalletHomeScreen extends StatefulWidget {
   const WalletHomeScreen({super.key});
@@ -20,12 +24,27 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
 
   String? address;
   double balance = 0.0;
+  double ethBalance = 0.0;
   double maxBalance = 10.0;
   bool loading = true;
+  bool _balanceFailed = false;
+  bool _balanceLoading = false;
   bool _addressCopied = false;
 
-  // ✅ STATE BELONGS HERE
   WalletSection _activeSection = WalletSection.transactions;
+
+  final _txKey = GlobalKey<_TransactionsSectionState>();
+  final _contractKey = GlobalKey<_ContractsSectionState>();
+
+  Future<void> _handleRefresh() async {
+    setState(() => _balanceFailed = false);
+    _loadWalletData();
+    if (_activeSection == WalletSection.transactions) {
+      await _txKey.currentState?._load();
+    } else {
+      await _contractKey.currentState?._load();
+    }
+  }
 
   @override
   void initState() {
@@ -46,7 +65,6 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
     print('[WalletHome] wallet_address from storage: $addr');
 
     if (addr == null) {
-      print('[WalletHome] No wallet address found - showing empty state');
       if (mounted) {
         setState(() {
           address = '';
@@ -58,22 +76,30 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
 
     await Future.delayed(const Duration(milliseconds: 500));
 
+    if (mounted) setState(() => _balanceLoading = true);
+
     double realBalance = 0.0;
+    double realEthBalance = 0.0;
+    bool failed = false;
     try {
-      print('[WalletHome] Fetching token balance for $addr...');
-      realBalance = await EthService.getTokenBalance(addr);
-      print('[WalletHome] Balance fetched: $realBalance DCLD');
+      print('[WalletHome] Fetching balances for $addr...');
+      realBalance    = await EthService.getTokenBalance(addr);
+      realEthBalance = await EthService.getEthBalance(addr);
+      print('[WalletHome] DCLD: $realBalance  ETH: $realEthBalance');
     } catch (e, st) {
       print('[WalletHome] Failed to fetch balance: $e\n$st');
+      failed = true;
     }
 
     if (!mounted) return;
 
-    print('[WalletHome] Setting state - address: $addr, balance: $realBalance');
     setState(() {
-      address = addr;
-      balance = realBalance;
-      loading = false;
+      address       = addr;
+      balance       = realBalance;
+      ethBalance    = realEthBalance;
+      _balanceFailed  = failed;
+      _balanceLoading = false;
+      loading    = false;
     });
 
     _controller.forward();
@@ -97,20 +123,12 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
           _sectionButton(
             label: "Transactions",
             selected: _activeSection == WalletSection.transactions,
-            onTap: () {
-              setState(() {
-                _activeSection = WalletSection.transactions;
-              });
-            },
+            onTap: () => setState(() => _activeSection = WalletSection.transactions),
           ),
           _sectionButton(
             label: "Smart Contracts",
             selected: _activeSection == WalletSection.contracts,
-            onTap: () {
-              setState(() {
-                _activeSection = WalletSection.contracts;
-              });
-            },
+            onTap: () => setState(() => _activeSection = WalletSection.contracts),
           ),
         ],
       ),
@@ -152,46 +170,51 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
       body: SafeArea(
         child: loading
             ? const Center(child: CircularProgressIndicator())
-            : Padding(
-                padding: const EdgeInsets.all(20),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text(
-                        "Wallet",
-                        style: TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.3,
-                          color: Color.fromARGB(200, 200, 200, 200),
+            : RefreshIndicator(
+                onRefresh: _handleRefresh,
+                color: Colors.cyanAccent,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          "Wallet",
+                          style: TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.3,
+                            color: Color.fromARGB(200, 200, 200, 200),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 15),
-                      AnimatedBuilder(
-                        animation: _controller,
-                        builder: (context, child) {
-                          final scale = Curves.easeOutBack.transform(
-                            _controller.value.clamp(0.0, 1.0),
-                          );
-                          return Transform.scale(
-                            scale: scale,
-                            alignment: Alignment.topCenter,
-                            child: child,
-                          );
-                        },
-                        child: _walletCard(),
-                      ),
-                      const SizedBox(height: 10),
-                      _buildSectionSwitcher(),
-                      const SizedBox(height: 10),
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 250),
-                        child: _activeSection == WalletSection.transactions
-                            ? const _TransactionsSection()
-                            : const _ContractsSection(),
-                      ),
-                    ],
+                        const SizedBox(height: 15),
+                        AnimatedBuilder(
+                          animation: _controller,
+                          builder: (context, child) {
+                            final scale = Curves.easeOutBack.transform(
+                              _controller.value.clamp(0.0, 1.0),
+                            );
+                            return Transform.scale(
+                              scale: scale,
+                              alignment: Alignment.topCenter,
+                              child: child,
+                            );
+                          },
+                          child: _walletCard(),
+                        ),
+                        const SizedBox(height: 10),
+                        _buildSectionSwitcher(),
+                        const SizedBox(height: 10),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 250),
+                          child: _activeSection == WalletSection.transactions
+                              ? _TransactionsSection(key: _txKey)
+                              : _ContractsSection(key: _contractKey),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -253,7 +276,7 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
               ],
             ),
           ),
-          const SizedBox(height: 1),
+          const SizedBox(height: 8),
           const Text(
             "Wallet Balance",
             style: TextStyle(
@@ -263,14 +286,59 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
             ),
           ),
           const SizedBox(height: 1),
-          Text(
-            "$balance DCLD",
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
+          if (_balanceLoading)
+            const SizedBox(
+              height: 28,
+              width: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Colors.white,
+              ),
+            )
+          else if (_balanceFailed)
+            Row(
+              children: [
+                const Icon(Icons.wifi_off_rounded, color: Colors.white70, size: 18),
+                const SizedBox(width: 8),
+                const Text(
+                  'Could not load balance',
+                  style: TextStyle(color: Colors.white70, fontSize: 15),
+                ),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: _loadWalletData,
+                  child: const Text(
+                    'Retry',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      decoration: TextDecoration.underline,
+                      decorationColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else
+            Text(
+              '${balance.toStringAsFixed(4)} DCLD',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
+          const SizedBox(height: 4),
+          if (!_balanceFailed && !_balanceLoading)
+            Text(
+              '${ethBalance.toStringAsFixed(6)} ETH (Sepolia)',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           const SizedBox(height: 15),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -318,10 +386,7 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
                 ),
                 child: const Text(
                   "Disconnect",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                 ),
               ),
               ElevatedButton(
@@ -333,10 +398,7 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
                 ),
                 child: const Text(
                   "Send Tokens",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -347,31 +409,280 @@ class _WalletHomeScreenState extends State<WalletHomeScreen>
   }
 }
 
-class _TransactionsSection extends StatelessWidget {
-  const _TransactionsSection();
+class _TransactionsSection extends StatefulWidget {
+  const _TransactionsSection({super.key});
+
+  @override
+  State<_TransactionsSection> createState() => _TransactionsSectionState();
+}
+
+class _TransactionsSectionState extends State<_TransactionsSection> {
+  List<TokenTransfer>? _transfers;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    if (mounted) setState(() { _loading = true; _error = null; });
+    try {
+      final address = await SecureStorage.read('wallet_address');
+      if (address == null) {
+        if (mounted) setState(() { _transfers = []; _loading = false; });
+        return;
+      }
+      final transfers = await EthService.getRecentTransfers(address);
+      if (mounted) setState(() { _transfers = transfers; _loading = false; });
+    } catch (e) {
+      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        key: ValueKey("transactions"),
+        padding: EdgeInsets.only(top: 32),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_error != null) {
+      return Padding(
+        key: const ValueKey("transactions"),
+        padding: const EdgeInsets.only(top: 16),
+        child: Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+      );
+    }
+    if (_transfers == null || _transfers!.isEmpty) {
+      return const Padding(
+        key: ValueKey("transactions"),
+        padding: EdgeInsets.only(top: 32),
+        child: Center(child: Text("No DCLD transfers yet.", style: TextStyle(color: Colors.white70))),
+      );
+    }
+
     return Column(
       key: const ValueKey("transactions"),
-      children: const [
-        _TransactionTile(address: "0xA3f9...92C1", amount: 234.0),
-        _TransactionTile(address: "0x91bE...7D2A", amount: -1324.0),
-        _TransactionTile(address: "0xC44D...E18F", amount: 56.75),
-      ],
+      children: _transfers!.map((t) => _TransactionTile(transfer: t)).toList(),
     );
   }
 }
 
 class _TransactionTile extends StatelessWidget {
-  final String address;
-  final double amount;
+  final TokenTransfer transfer;
 
-  const _TransactionTile({required this.address, required this.amount});
+  const _TransactionTile({required this.transfer});
 
   @override
   Widget build(BuildContext context) {
-    final incoming = amount >= 0;
+    // Determine direction from the current wallet address (loaded async, use FutureBuilder inline)
+    return FutureBuilder<String?>(
+      future: SecureStorage.read('wallet_address'),
+      builder: (context, snap) {
+        final myAddress = snap.data?.toLowerCase() ?? '';
+        final incoming = transfer.to.toLowerCase() == myAddress;
+        final counterparty = incoming ? transfer.from : transfer.to;
+        final shortAddr = counterparty.length >= 10
+            ? '${counterparty.substring(0, 6)}…${counterparty.substring(counterparty.length - 4)}'
+            : counterparty;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white12,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: incoming ? Colors.green : Colors.red,
+                child: Icon(
+                  incoming ? Icons.call_received : Icons.call_made,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      incoming ? "Received" : "Sent",
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      shortAddr,
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                "${incoming ? '+' : '-'}${transfer.amount.toStringAsFixed(4)} DCLD",
+                style: TextStyle(
+                  color: incoming ? Colors.greenAccent : Colors.redAccent,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ContractsSection extends StatefulWidget {
+  const _ContractsSection({super.key});
+
+  @override
+  State<_ContractsSection> createState() => _ContractsSectionState();
+}
+
+class _ContractsSectionState extends State<_ContractsSection> {
+  List<PendingDeal> _deals = [];
+  bool _loading = true;
+  String? _error;
+  bool _autoSign = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAutoSignPref();
+    _load();
+  }
+
+  Future<void> _loadAutoSignPref() async {
+    final val = await SecureStorage.read(_kAutoSignKey);
+    if (mounted) setState(() => _autoSign = val != 'false');
+  }
+
+  Future<void> _toggleAutoSign(bool value) async {
+    await SecureStorage.write(_kAutoSignKey, value ? 'true' : 'false');
+    if (mounted) setState(() => _autoSign = value);
+  }
+
+  Future<void> _load() async {
+    if (mounted) setState(() { _loading = true; _error = null; });
+    try {
+      final deals = await DealService.fetchAllDeals();
+      if (mounted) setState(() { _deals = deals; _loading = false; });
+    } catch (e) {
+      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const ValueKey("contracts"),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Auto-sign toggle
+        Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white10,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "Auto-sign deals",
+                style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              Switch(
+                value: _autoSign,
+                onChanged: _toggleAutoSign,
+                activeThumbColor: Colors.blueAccent,
+                activeTrackColor: Colors.blueAccent.withAlpha(120),
+              ),
+            ],
+          ),
+        ),
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.only(top: 24),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+          )
+        else if (_deals.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 24),
+            child: Center(child: Text("No storage deals yet.", style: TextStyle(color: Colors.white70))),
+          )
+        else
+          ..._deals.map((d) => _DealTile(
+            deal: d,
+            showSignButton: !_autoSign,
+            onSigned: _load,
+          )),
+      ],
+    );
+  }
+}
+
+class _DealTile extends StatefulWidget {
+  final PendingDeal deal;
+  final bool showSignButton;
+  final VoidCallback? onSigned;
+
+  const _DealTile({required this.deal, this.showSignButton = false, this.onSigned});
+
+  @override
+  State<_DealTile> createState() => _DealTileState();
+}
+
+class _DealTileState extends State<_DealTile> {
+  bool _signing = false;
+
+  Color _statusColor(String s) {
+    switch (s) {
+      case 'SETTLED':    return Colors.greenAccent;
+      case 'SUBMITTING': return Colors.blueAccent;
+      case 'FAILED':     return Colors.redAccent;
+      case 'EXPIRED':    return Colors.orange;
+      default:           return Colors.white54;
+    }
+  }
+
+  Future<void> _sign() async {
+    setState(() => _signing = true);
+    try {
+      await DealService.signAndSubmitDeal(widget.deal);
+      widget.onSigned?.call();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Sign failed: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _signing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final deal = widget.deal;
+    final priceEth = (BigInt.tryParse(deal.priceWei) ?? BigInt.zero).toDouble() / 1e18;
+    final escrowEth = (BigInt.tryParse(deal.peerEscrowWei) ?? BigInt.zero).toDouble() / 1e18;
+    final canSign = widget.showSignButton &&
+        !deal.clientSigned &&
+        (deal.status == 'PENDING' || deal.status == 'PEER_SIGNED');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -380,61 +691,88 @@ class _TransactionTile extends StatelessWidget {
         color: Colors.white12,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            backgroundColor: incoming ? Colors.green : Colors.red,
-            child: Icon(
-              incoming ? Icons.call_received : Icons.call_made,
-              color: Colors.white,
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  incoming ? "Received" : "Sent",
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Deal ${deal.dealId.length > 10 ? deal.dealId.substring(2, 10) : deal.dealId}…',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: _statusColor(deal.status).withAlpha(40),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _statusColor(deal.status).withAlpha(100)),
                 ),
-                Text(
-                  address,
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                child: Text(
+                  deal.status,
+                  style: TextStyle(color: _statusColor(deal.status), fontSize: 11, fontWeight: FontWeight.w600),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
+          const SizedBox(height: 6),
           Text(
-            "${incoming ? '+' : ''}${amount.toStringAsFixed(2)} DCLD",
-            style: TextStyle(
-              color: incoming ? Colors.greenAccent : Colors.redAccent,
-              fontWeight: FontWeight.w700,
-            ),
+            'Peer: ${deal.peerAddress.length > 10 ? '${deal.peerAddress.substring(0, 10)}…' : deal.peerAddress}',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
           ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${priceEth.toStringAsFixed(6)} DCLD', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  Text('Escrow: ${escrowEth.toStringAsFixed(6)} DCLD', style: const TextStyle(color: Colors.blueAccent, fontSize: 11)),
+                ],
+              ),
+              Row(
+                children: [
+                  Icon(deal.clientSigned ? Icons.check_circle_outline : Icons.radio_button_unchecked,
+                      color: deal.clientSigned ? Colors.greenAccent : Colors.white38, size: 14),
+                  const SizedBox(width: 4),
+                  const Text('You', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                  const SizedBox(width: 8),
+                  Icon(deal.peerSigned ? Icons.check_circle_outline : Icons.radio_button_unchecked,
+                      color: deal.peerSigned ? Colors.greenAccent : Colors.white38, size: 14),
+                  const SizedBox(width: 4),
+                  const Text('Peer', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                ],
+              ),
+            ],
+          ),
+          if (canSign) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 36,
+              child: ElevatedButton(
+                onPressed: _signing ? null : _sign,
+                style: ElevatedButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: _signing
+                    ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : Ink(
+                        decoration: BoxDecoration(
+                          gradient: kPrimaryGradient,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Center(
+                          child: Text('Sign Deal', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+              ),
+            ),
+          ],
         ],
       ),
-    );
-  }
-}
-
-class _ContractsSection extends StatelessWidget {
-  const _ContractsSection();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Column(
-      key: ValueKey("contracts"),
-      children: [
-        Text(
-          "No smart contracts connected",
-          style: TextStyle(color: Colors.white70),
-        ),
-      ],
     );
   }
 }

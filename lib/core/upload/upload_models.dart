@@ -19,14 +19,51 @@ class PeerAssignment {
       );
 }
 
-class UploadResponse {
+/// Phase 1 response — POST /client/upload (202)
+class AllocateResponse {
+  final String sessionId;
   final String fileId;
+  final String merkleRoot;
+  final Map<String, PeerAssignment> peers;
+  final int expiresIn; // seconds until session expires
+
+  const AllocateResponse({
+    required this.sessionId,
+    required this.fileId,
+    required this.merkleRoot,
+    required this.peers,
+    required this.expiresIn,
+  });
+
+  factory AllocateResponse.fromJson(Map<String, dynamic> json) => AllocateResponse(
+        sessionId: json['sessionId'] as String,
+        fileId: json['fileId'] as String,
+        merkleRoot: json['merkleRoot'] as String,
+        peers: (json['peers'] as Map<String, dynamic>).map(
+          (id, v) => MapEntry(id, PeerAssignment.fromJson(v as Map<String, dynamic>)),
+        ),
+        expiresIn: json['expiresIn'] as int,
+      );
+}
+
+/// Phase 2 response — POST /client/upload/confirm (201)
+class ConfirmResponse {
+  final String fileId;
+  final String merkleRoot;
+  final String status;
   final Map<String, PeerAssignment> peers;
 
-  const UploadResponse({required this.fileId, required this.peers});
+  const ConfirmResponse({
+    required this.fileId,
+    required this.merkleRoot,
+    required this.status,
+    required this.peers,
+  });
 
-  factory UploadResponse.fromJson(Map<String, dynamic> json) => UploadResponse(
+  factory ConfirmResponse.fromJson(Map<String, dynamic> json) => ConfirmResponse(
         fileId: json['fileId'] as String,
+        merkleRoot: json['merkleRoot'] as String,
+        status: json['status'] as String,
         peers: (json['peers'] as Map<String, dynamic>).map(
           (id, v) => MapEntry(id, PeerAssignment.fromJson(v as Map<String, dynamic>)),
         ),

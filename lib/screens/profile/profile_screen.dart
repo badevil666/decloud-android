@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:web3dart/web3dart.dart';
+import 'package:http/http.dart' as http_client;
 import '../../core/constants.dart';
 import '../../core/auth_notifier.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../core/config/api_config_service.dart';
 import '../../core/config/api_config.dart';
+import '../../core/config/blockchain_config.dart';
 import '../../core/config/relay_config_service.dart';
 import '../../core/config/relay_config.dart' as relay_defaults;
 import '../wallet/wallet_setup_screen.dart';
@@ -337,9 +340,61 @@ class _DeCloudProfileView extends StatefulWidget {
 
 class _DeCloudProfileViewState extends State<_DeCloudProfileView> {
   bool _addressCopied = false;
+  bool _approving = false;
+  String? _approvalResult;
 
   String _truncate(String addr) =>
       '${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}';
+
+  Future<void> _approveDcld() async {
+    if (escrowContractAddress == '0x0000000000000000000000000000000000000000') {
+      setState(() => _approvalResult = 'Escrow contract not configured yet.');
+      return;
+    }
+    setState(() { _approving = true; _approvalResult = null; });
+    try {
+      final privateKeyHex = await SecureStorage.read('wallet_private_key');
+      if (privateKeyHex == null) throw Exception('No wallet key found.');
+
+      final credentials = EthPrivateKey.fromHex(privateKeyHex);
+      Web3Client client;
+      try {
+        client = Web3Client(sepoliaRpcUrl, http_client.Client());
+        await client.getBlockNumber();
+      } catch (_) {
+        client = Web3Client(sepoliaFallbackRpcUrl, http_client.Client());
+      }
+
+      const erc20Approve = '''[{"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"}]''';
+
+      final contract = DeployedContract(
+        ContractAbi.fromJson(erc20Approve, 'DCLD'),
+        EthereumAddress.fromHex(dcldTokenAddress),
+      );
+
+      final maxUint256 = BigInt.parse(
+        'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        radix: 16,
+      );
+
+      final txHash = await client.sendTransaction(
+        credentials,
+        Transaction.callContract(
+          contract: contract,
+          function: contract.function('approve'),
+          parameters: [EthereumAddress.fromHex(escrowContractAddress), maxUint256],
+          maxGas: 100000,
+        ),
+        chainId: 11155111,
+      );
+
+      setState(() => _approvalResult = 'Approved! tx: ${txHash.substring(0, 14)}…');
+    } catch (e) {
+      setState(() => _approvalResult = 'Error: $e');
+    } finally {
+      if (mounted) setState(() => _approving = false);
+    }
+  }
 
   Future<void> _copyAddress() async {
     await Clipboard.setData(ClipboardData(text: widget.walletAddress));
@@ -441,6 +496,29 @@ class _DeCloudProfileViewState extends State<_DeCloudProfileView> {
           const SizedBox(height: 28),
 
           // ── Actions ──────────────────────────────────────────────────────
+          // Approve DCLD spending for storage deals
+          SizedBox(
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: _approving ? null : _approveDcld,
+              icon: _approving
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  : const Icon(Icons.verified_rounded, size: 18),
+              label: Text(_approving ? 'Approving…' : 'Approve DCLD Spending',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purpleAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ),
+          if (_approvalResult != null) ...[
+            const SizedBox(height: 8),
+            Text(_approvalResult!, style: const TextStyle(color: Colors.white70, fontSize: 12),
+                textAlign: TextAlign.center),
+          ],
+          const SizedBox(height: 12),
           SizedBox(
             height: 52,
             child: OutlinedButton.icon(

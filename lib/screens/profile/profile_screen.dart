@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:web3dart/web3dart.dart';
@@ -11,6 +12,9 @@ import '../../core/config/api_config.dart';
 import '../../core/config/blockchain_config.dart';
 import '../../core/config/relay_config_service.dart';
 import '../../core/config/relay_config.dart' as relay_defaults;
+import '../../core/config/rpc_config_service.dart';
+import '../../core/config/contract_config_service.dart';
+import '../../core/config/network_config_service.dart';
 import '../wallet/wallet_setup_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -25,6 +29,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isDeCloudConnected = false;
   String _apiUrl = '';
   String _relayUrl = '';
+  String _rpcUrl = '';
 
   @override
   void initState() {
@@ -41,13 +46,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadDeCloudState() async {
     final token = await AuthService.getToken();
-    final url = await ApiConfigService.getBaseUrl();
+    final url   = await ApiConfigService.getBaseUrl();
     final relay = await RelayConfigService.getBaseUrl();
+    final rpc   = await RpcConfigService.getRpcUrl();
     if (mounted) {
       setState(() {
         _isDeCloudConnected = token != null;
-        _apiUrl = url;
+        _apiUrl   = url;
         _relayUrl = relay;
+        _rpcUrl   = rpc;
       });
     }
   }
@@ -99,6 +106,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         walletAddress: walletAddress,
         apiUrl: _apiUrl,
         relayUrl: _relayUrl,
+        rpcUrl: _rpcUrl,
         onSignOut: _signOutDeCloud,
         onDisconnectWallet: () => _authNotifier.disconnectWallet(),
       );
@@ -323,6 +331,7 @@ class _DeCloudProfileView extends StatefulWidget {
   final String walletAddress;
   final String apiUrl;
   final String relayUrl;
+  final String rpcUrl;
   final VoidCallback onSignOut;
   final VoidCallback onDisconnectWallet;
 
@@ -330,6 +339,7 @@ class _DeCloudProfileView extends StatefulWidget {
     required this.walletAddress,
     required this.apiUrl,
     required this.relayUrl,
+    required this.rpcUrl,
     required this.onSignOut,
     required this.onDisconnectWallet,
   });
@@ -347,29 +357,46 @@ class _DeCloudProfileViewState extends State<_DeCloudProfileView> {
       '${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}';
 
   Future<void> _approveDcld() async {
-    if (escrowContractAddress == '0x0000000000000000000000000000000000000000') {
-      setState(() => _approvalResult = 'Escrow contract not configured yet.');
-      return;
-    }
     setState(() { _approving = true; _approvalResult = null; });
     try {
       final privateKeyHex = await SecureStorage.read('wallet_private_key');
       if (privateKeyHex == null) throw Exception('No wallet key found.');
 
+      // Fetch live network config from the backend so we always use the
+      // correct addresses regardless of build-time NETWORK flag.
+      final netCfg = await NetworkConfigService.fetch();
+      final escrowAddr = netCfg.escrowAddress.isNotEmpty
+          ? netCfg.escrowAddress
+          : await ContractConfigService.getEscrowAddress();
+      final dcldAddr = netCfg.dcldTokenAddress.isNotEmpty
+          ? netCfg.dcldTokenAddress
+          : await ContractConfigService.getDcldAddress();
+      final activeChainId = netCfg.chainId;
+
+      if (escrowAddr == '0x0000000000000000000000000000000000000000' || escrowAddr.isEmpty) {
+        setState(() => _approvalResult = 'Escrow contract not configured on backend.');
+        return;
+      }
+      if (dcldAddr.isEmpty) {
+        setState(() => _approvalResult = 'DCLD token address not configured on backend.');
+        return;
+      }
+
       final credentials = EthPrivateKey.fromHex(privateKeyHex);
+      final storedRpc = await RpcConfigService.getRpcUrl();
       Web3Client client;
       try {
-        client = Web3Client(sepoliaRpcUrl, http_client.Client());
+        client = Web3Client(storedRpc, http_client.Client());
         await client.getBlockNumber();
       } catch (_) {
-        client = Web3Client(sepoliaFallbackRpcUrl, http_client.Client());
+        client = Web3Client(fallbackRpcUrl, http_client.Client());
       }
 
       const erc20Approve = '''[{"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"}]''';
 
       final contract = DeployedContract(
         ContractAbi.fromJson(erc20Approve, 'DCLD'),
-        EthereumAddress.fromHex(dcldTokenAddress),
+        EthereumAddress.fromHex(dcldAddr),
       );
 
       final maxUint256 = BigInt.parse(
@@ -382,10 +409,10 @@ class _DeCloudProfileViewState extends State<_DeCloudProfileView> {
         Transaction.callContract(
           contract: contract,
           function: contract.function('approve'),
-          parameters: [EthereumAddress.fromHex(escrowContractAddress), maxUint256],
+          parameters: [EthereumAddress.fromHex(escrowAddr), maxUint256],
           maxGas: 100000,
         ),
-        chainId: 11155111,
+        chainId: activeChainId,
       );
 
       setState(() => _approvalResult = 'Approved! tx: ${txHash.substring(0, 14)}…');
@@ -394,6 +421,14 @@ class _DeCloudProfileViewState extends State<_DeCloudProfileView> {
     } finally {
       if (mounted) setState(() => _approving = false);
     }
+  }
+
+  String _networkLabel(String rpc) {
+    if (rpc.contains('127.0.0.1') || rpc.contains('localhost') || rpc.contains('10.0.2.2')) {
+      return 'Hardhat Local';
+    }
+    if (rpc.contains('sepolia')) return 'Sepolia Testnet';
+    return 'Custom';
   }
 
   Future<void> _copyAddress() async {
@@ -470,7 +505,7 @@ class _DeCloudProfileViewState extends State<_DeCloudProfileView> {
               icon: Icons.lan_rounded,
               iconColor: Colors.cyanAccent,
               label: 'Network',
-              value: 'Sepolia Testnet',
+              value: _networkLabel(widget.rpcUrl),
             ),
             _InfoRow(
               icon: Icons.token_rounded,
@@ -490,6 +525,13 @@ class _DeCloudProfileViewState extends State<_DeCloudProfileView> {
               iconColor: Colors.white54,
               label: 'Relay',
               value: widget.relayUrl,
+              smallValue: true,
+            ),
+            _InfoRow(
+              icon: Icons.hub_rounded,
+              iconColor: Colors.white54,
+              label: 'RPC',
+              value: widget.rpcUrl,
               smallValue: true,
             ),
           ]),
@@ -781,35 +823,49 @@ class _ApiSettingsSheet extends StatefulWidget {
 }
 
 class _ApiSettingsSheetState extends State<_ApiSettingsSheet> {
-  late TextEditingController _apiController;
-  late TextEditingController _relayController;
+  final TextEditingController _apiController    = TextEditingController();
+  final TextEditingController _relayController  = TextEditingController();
+  final TextEditingController _rpcController    = TextEditingController();
+  final TextEditingController _dcldController   = TextEditingController();
+  final TextEditingController _escrowController = TextEditingController();
   bool _loading = true;
   bool _saved = false;
+  bool _fetching = false;
 
   @override
   void initState() {
     super.initState();
-    _apiController = TextEditingController();
-    _relayController = TextEditingController();
     _load();
   }
 
   Future<void> _load() async {
-    final url = await ApiConfigService.getBaseUrl();
-    final relay = await RelayConfigService.getBaseUrl();
+    final url    = await ApiConfigService.getBaseUrl();
+    final relay  = await RelayConfigService.getBaseUrl();
+    final rpc    = await RpcConfigService.getRpcUrl();
+    final dcld   = await ContractConfigService.getDcldAddress();
+    final escrow = await ContractConfigService.getEscrowAddress();
     if (mounted) {
-      _apiController.text = url;
-      _relayController.text = relay;
+      _apiController.text    = url;
+      _relayController.text  = relay;
+      _rpcController.text    = rpc;
+      _dcldController.text   = dcld;
+      _escrowController.text = escrow;
       setState(() => _loading = false);
     }
   }
 
   Future<void> _save() async {
-    final url = _apiController.text.trim();
-    final relay = _relayController.text.trim();
-    if (url.isEmpty || relay.isEmpty) return;
+    final url    = _apiController.text.trim();
+    final relay  = _relayController.text.trim();
+    final rpc    = _rpcController.text.trim();
+    final dcld   = _dcldController.text.trim();
+    final escrow = _escrowController.text.trim();
+    if (url.isEmpty || relay.isEmpty || rpc.isEmpty || dcld.isEmpty || escrow.isEmpty) return;
     await ApiConfigService.setBaseUrl(url);
     await RelayConfigService.setBaseUrl(relay);
+    await RpcConfigService.setRpcUrl(rpc);
+    await ContractConfigService.setDcldAddress(dcld);
+    await ContractConfigService.setEscrowAddress(escrow);
     if (mounted) {
       setState(() => _saved = true);
       await Future.delayed(const Duration(seconds: 1));
@@ -817,13 +873,58 @@ class _ApiSettingsSheetState extends State<_ApiSettingsSheet> {
     }
   }
 
+  Future<void> _fetchFromBackend() async {
+    setState(() => _fetching = true);
+    try {
+      final apiBase = _apiController.text.trim().isNotEmpty
+          ? _apiController.text.trim()
+          : await ApiConfigService.getBaseUrl();
+      final resp = await http_client.get(Uri.parse('$apiBase/network-config'))
+          .timeout(const Duration(seconds: 8));
+      if (resp.statusCode == 200) {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        final dcld   = (body['dcldTokenAddress'] as String?) ?? '';
+        final escrow = (body['escrowAddress']    as String?) ?? '';
+        if (dcld.isNotEmpty)   await ContractConfigService.setDcldAddress(dcld);
+        if (escrow.isNotEmpty) await ContractConfigService.setEscrowAddress(escrow);
+        if (mounted) {
+          setState(() {
+            if (dcld.isNotEmpty)   _dcldController.text   = dcld;
+            if (escrow.isNotEmpty) _escrowController.text = escrow;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Contract addresses updated from backend'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ));
+        }
+      } else {
+        throw Exception('HTTP ${resp.statusCode}');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Failed to fetch: $e'),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _fetching = false);
+    }
+  }
+
   Future<void> _reset() async {
     await ApiConfigService.resetToDefault();
     await RelayConfigService.resetToDefault();
+    await RpcConfigService.resetToDefault();
+    await ContractConfigService.resetToDefault();
     if (mounted) {
       setState(() {
-        _apiController.text = apiBaseUrl;
-        _relayController.text = relay_defaults.relayBaseUrl;
+        _apiController.text    = apiBaseUrl;
+        _relayController.text  = relay_defaults.relayBaseUrl;
+        _rpcController.text    = rpcUrl;
+        _dcldController.text   = dcldTokenAddress;
+        _escrowController.text = escrowContractAddress;
       });
     }
   }
@@ -832,6 +933,9 @@ class _ApiSettingsSheetState extends State<_ApiSettingsSheet> {
   void dispose() {
     _apiController.dispose();
     _relayController.dispose();
+    _rpcController.dispose();
+    _dcldController.dispose();
+    _escrowController.dispose();
     super.dispose();
   }
 
@@ -874,12 +978,42 @@ class _ApiSettingsSheetState extends State<_ApiSettingsSheet> {
           else ...[
             Text('API URL', style: TextStyle(color: kTextSecondary, fontSize: 13)),
             const SizedBox(height: 8),
-            _urlField(controller: _apiController, hint: 'http://localhost:3000'),
+            _urlField(controller: _apiController, hint: 'http://192.168.x.x:3000'),
             const SizedBox(height: 16),
             Text('Relay URL', style: TextStyle(color: kTextSecondary, fontSize: 13)),
             const SizedBox(height: 8),
-            _urlField(controller: _relayController, hint: 'http://localhost:8080'),
+            _urlField(controller: _relayController, hint: 'http://192.168.x.x:4000'),
+            const SizedBox(height: 16),
+            Text('Blockchain RPC', style: TextStyle(color: kTextSecondary, fontSize: 13)),
+            const SizedBox(height: 8),
+            _urlField(controller: _rpcController, hint: 'http://192.168.x.x:8545'),
+            const SizedBox(height: 16),
+            Text('DCLD Token Address', style: TextStyle(color: kTextSecondary, fontSize: 13)),
+            const SizedBox(height: 8),
+            _urlField(controller: _dcldController, hint: '0x5FbDB231...'),
+            const SizedBox(height: 16),
+            Text('Escrow Contract Address', style: TextStyle(color: kTextSecondary, fontSize: 13)),
+            const SizedBox(height: 8),
+            _urlField(controller: _escrowController, hint: '0xe7f1725E...'),
             const SizedBox(height: 20),
+            SizedBox(
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: _fetching ? null : _fetchFromBackend,
+                icon: _fetching
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white54))
+                    : const Icon(Icons.download_rounded, size: 18, color: Colors.white70),
+                label: Text(
+                  _fetching ? 'Fetching…' : 'Fetch Contract Addresses from Backend',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.white24),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
             SizedBox(
               height: 48,
               child: ElevatedButton(

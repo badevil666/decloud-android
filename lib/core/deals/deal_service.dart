@@ -8,13 +8,13 @@ import 'package:web3dart/web3dart.dart';
 
 import '../auth/auth_service.dart';
 import '../config/api_config_service.dart';
-import '../config/blockchain_config.dart';
 import '../storage/secure_storage.dart';
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 class PendingDeal {
   final String dealId;
+  final String fileId;
   final String peerId;
   final String peerAddress;
   final String clientAddress;
@@ -28,9 +28,13 @@ class PendingDeal {
   final String status;
   final bool clientSigned;
   final bool peerSigned;
+  // Domain params injected from the API response (not blockchain_config.dart)
+  final String escrowAddress;
+  final int chainId;
 
   const PendingDeal({
     required this.dealId,
+    required this.fileId,
     required this.peerId,
     required this.peerAddress,
     required this.clientAddress,
@@ -44,9 +48,11 @@ class PendingDeal {
     required this.status,
     required this.clientSigned,
     required this.peerSigned,
+    required this.escrowAddress,
+    required this.chainId,
   });
 
-  factory PendingDeal.fromJson(Map<String, dynamic> j) {
+  factory PendingDeal.fromJson(Map<String, dynamic> j, {String escrowAddress = '', int chainId = 11155111}) {
     final rawHashes = j['chunkHashes'];
     final List<String> hashes = rawHashes is List
         ? rawHashes.map((e) => e.toString()).toList()
@@ -54,6 +60,7 @@ class PendingDeal {
 
     return PendingDeal(
       dealId:         j['dealId']        as String,
+      fileId:         (j['fileId']        as String?) ?? '',
       peerId:         (j['peerId']        as String?) ?? '',
       peerAddress:    (j['peerAddress']   as String?) ?? '',
       clientAddress:  (j['clientAddress'] as String?) ?? '',
@@ -67,6 +74,8 @@ class PendingDeal {
       status:         (j['status']        as String?) ?? 'UNKNOWN',
       clientSigned:   j['clientSigned']  as bool? ?? false,
       peerSigned:     j['peerSigned']    as bool? ?? false,
+      escrowAddress:  escrowAddress,
+      chainId:        chainId,
     );
   }
 }
@@ -84,9 +93,14 @@ class DealService {
       headers: {'Authorization': 'Bearer $token'},
     );
     if (response.statusCode == 200) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final list = body['deals'] as List<dynamic>;
-      return list.map((e) => PendingDeal.fromJson(e as Map<String, dynamic>)).toList();
+      final body         = jsonDecode(response.body) as Map<String, dynamic>;
+      final escrowAddr   = (body['escrowAddress'] as String?) ?? '';
+      final chainIdVal   = int.tryParse((body['chainId'] as String?) ?? '') ?? 11155111;
+      final list         = body['deals'] as List<dynamic>;
+      return list
+          .map((e) => PendingDeal.fromJson(e as Map<String, dynamic>,
+              escrowAddress: escrowAddr, chainId: chainIdVal))
+          .toList();
     } else {
       throw Exception('fetchAllDeals failed: ${response.statusCode}');
     }
@@ -104,10 +118,13 @@ class DealService {
     );
 
     if (response.statusCode == 200) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final list = body['deals'] as List<dynamic>;
+      final body       = jsonDecode(response.body) as Map<String, dynamic>;
+      final escrowAddr = (body['escrowAddress'] as String?) ?? '';
+      final chainIdVal = int.tryParse((body['chainId'] as String?) ?? '') ?? 11155111;
+      final list       = body['deals'] as List<dynamic>;
       return list
-          .map((e) => PendingDeal.fromJson(e as Map<String, dynamic>))
+          .map((e) => PendingDeal.fromJson(e as Map<String, dynamic>,
+              escrowAddress: escrowAddr, chainId: chainIdVal))
           .where((d) => !d.clientSigned)
           .toList();
     } else if (response.statusCode == 404) {
@@ -140,6 +157,50 @@ class DealService {
     if (response.statusCode != 200) {
       throw Exception('signAndSubmitDeal failed: ${response.statusCode} ${response.body}');
     }
+  }
+
+  /// Retry a single FAILED deal by calling POST /client/deals/:dealId/retry.
+  static Future<void> retryDeal(String dealId) async {
+    final baseUrl = await ApiConfigService.getBaseUrl();
+    final token   = await AuthService.getToken();
+    if (token == null) throw Exception('Not authenticated.');
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/client/deals/$dealId/retry'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('retryDeal failed: ${response.statusCode} ${response.body}');
+    }
+  }
+
+  /// Retry all FAILED deals for [fileId], then auto-sign any that become signable.
+  /// Logs errors but does not throw.
+  static Future<void> retryFailedDealsForFile(String fileId) async {
+    List<PendingDeal> allDeals;
+    try {
+      allDeals = await fetchAllDeals();
+    } catch (e) {
+      print('[DealService] fetchAllDeals error during retry for $fileId: $e');
+      return;
+    }
+
+    final failed = allDeals.where((d) => d.fileId == fileId && d.status == 'FAILED').toList();
+    if (failed.isEmpty) return;
+
+    for (final deal in failed) {
+      try {
+        await retryDeal(deal.dealId);
+        print('[DealService] Queued retry for deal ${deal.dealId.substring(0, 12)}…');
+      } catch (e) {
+        print('[DealService] Retry request failed for ${deal.dealId.substring(0, 12)}…: $e');
+      }
+    }
+
+    // Give the peer a moment to receive the WS notification and sign
+    await Future.delayed(const Duration(seconds: 2));
+    await autoSignDealsForFile(fileId);
   }
 
   /// Auto-sign all unsigned deals for [fileId] silently in the background.
@@ -183,8 +244,8 @@ class DealService {
     String privateKeyHex,
     PendingDeal deal,
   ) async {
-    const chainId = 11155111;
-    const escrow  = escrowContractAddress;
+    final chainIdBig = deal.chainId;
+    final escrow     = deal.escrowAddress;
 
     // ── Domain separator ──────────────────────────────────────────────────────
     final domainTypeHash = keccak256(Uint8List.fromList(utf8.encode(
@@ -195,7 +256,7 @@ class DealService {
       _bytes32(domainTypeHash),
       _bytes32(keccak256(Uint8List.fromList(utf8.encode('StorageEscrow')))),
       _bytes32(keccak256(Uint8List.fromList(utf8.encode('1')))),
-      _uint256(BigInt.from(chainId)),
+      _uint256(BigInt.from(chainIdBig)),
       _address(escrow),
     ]));
 

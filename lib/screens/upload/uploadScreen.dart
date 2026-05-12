@@ -23,11 +23,19 @@ class _UploadScreenState extends State<UploadScreen> {
   List<String> _selectedFiles = [];
   String? _selectedDirectory;
   int? _onlinePeers;
+  Timer? _peerTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchPeerCount();
+    _peerTimer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchPeerCount());
+  }
+
+  @override
+  void dispose() {
+    _peerTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetchPeerCount() async {
@@ -530,6 +538,41 @@ class _UploadScreenState extends State<UploadScreen> {
                     // Duration / End Date
                     Text("End Date", style: TextStyle(color: kTextSecondary, fontSize: 14)),
                     const SizedBox(height: 8),
+
+                    // Quick-preset buttons for demo purposes
+                    Row(
+                      children: [
+                        for (final preset in [
+                          ('1 min', 1), ('2 min', 2), ('5 min', 5), ('10 min', 10),
+                        ])
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 3),
+                              child: OutlinedButton(
+                                onPressed: () => setState(() {
+                                  endDate = DateTime.now().add(Duration(minutes: preset.$2));
+                                }),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  side: const BorderSide(color: Colors.blueAccent),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                child: Text(
+                                  preset.$1,
+                                  style: const TextStyle(
+                                    color: Colors.blueAccent,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
                     GestureDetector(
                       onTap: () async {
                         DateTime? picked = await showDatePicker(
@@ -607,8 +650,9 @@ class _UploadScreenState extends State<UploadScreen> {
                       final now = DateTime.now();
                       final durationSeconds = endDate!.difference(now).inSeconds;
                       if (durationSeconds <= 0) return const SizedBox.shrink();
-                      // 0.0000001 DCLD per KB per second
-                      final pricePerDealDcld = (totalSizeBytes / 1024) * durationSeconds * 0.0000001;
+                      // 0.1 DCLD per KB per second
+                      // = sizeBytes * durationSec * 1e17 / 1024 / 1e18
+                      final pricePerDealDcld = (totalSizeBytes / 1024) * durationSeconds * (1.0 / 10.0);
                       final totalCostDcld = pricePerDealDcld * replicationFactor;
                       final peerEscrowDcld = pricePerDealDcld / 5;
 
@@ -691,12 +735,23 @@ class _UploadScreenState extends State<UploadScreen> {
                           Navigator.pop(context);
 
                           final progressController = StreamController<String>();
+                          final outerContext = this.context;
 
                           showDialog(
-                            context: this.context,
+                            context: outerContext,
                             barrierDismissible: false,
                             builder: (_) => _UploadProgressDialog(
                               stream: progressController.stream,
+                              onDone: () {
+                                Navigator.of(outerContext).pop();
+                                ScaffoldMessenger.of(outerContext).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Upload successful!'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                                _clearSelection();
+                              },
                             ),
                           );
 
@@ -711,28 +766,9 @@ class _UploadScreenState extends State<UploadScreen> {
                               );
                             }
                             progressController.close();
-                            await Future.delayed(const Duration(milliseconds: 600));
-                            if (mounted) {
-                              Navigator.of(this.context).pop();
-                              ScaffoldMessenger.of(this.context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Upload successful!'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-                              _clearSelection();
-                            }
                           } catch (e) {
+                            progressController.addError(e);
                             progressController.close();
-                            if (mounted) {
-                              Navigator.of(this.context).pop();
-                              ScaffoldMessenger.of(this.context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Upload failed: $e'),
-                                  backgroundColor: Colors.redAccent,
-                                ),
-                              );
-                            }
                           }
                         },
                         child: Ink(
@@ -837,7 +873,8 @@ class _Step {
 
 class _UploadProgressDialog extends StatefulWidget {
   final Stream<String> stream;
-  const _UploadProgressDialog({required this.stream});
+  final VoidCallback? onDone;
+  const _UploadProgressDialog({required this.stream, this.onDone});
 
   @override
   State<_UploadProgressDialog> createState() => _UploadProgressDialogState();
@@ -846,12 +883,30 @@ class _UploadProgressDialog extends StatefulWidget {
 class _UploadProgressDialogState extends State<_UploadProgressDialog> {
   final List<_Step> _steps = [];
   late final StreamSubscription<String> _sub;
-  final ScrollController _scroll = ScrollController();
+  bool _isDone = false;
+  String? _error;
+
+  // Icon + label for each recognised event key
+  static const _icons = <String, IconData>{
+    'file':    Icons.folder_open_rounded,
+    'chunk':   Icons.cut_rounded,
+    'hash':    Icons.fingerprint_rounded,
+    'nonces':  Icons.security_rounded,
+    'merkle':  Icons.account_tree_rounded,
+    'manifest':Icons.cloud_upload_rounded,
+    'confirm': Icons.people_alt_rounded,
+    'relay':   Icons.swap_horiz_rounded,
+  };
 
   @override
   void initState() {
     super.initState();
-    _sub = widget.stream.listen(_onEvent, onDone: _onDone);
+    _sub = widget.stream.listen(
+      _onEvent,
+      onDone: _onStreamDone,
+      onError: _onError,
+      cancelOnError: false,
+    );
   }
 
   static ({String key, String label}) _parse(String event) {
@@ -864,11 +919,11 @@ class _UploadProgressDialogState extends State<_UploadProgressDialog> {
     }
     if (event.startsWith('hash:')) {
       final p = event.split(':');
-      return (key: 'hash', label: 'SHA-256 hashing chunk ${p[1]} / ${p[2]}');
+      return (key: 'hash', label: 'Hashing chunk ${p[1]} / ${p[2]}');
     }
     if (event.startsWith('nonces:')) {
       final p = event.split(':');
-      return (key: 'nonces', label: 'Generating proof nonces  chunk ${p[1]} / ${p[2]}');
+      return (key: 'nonces', label: 'Proof nonces  ${p[1]} / ${p[2]}');
     }
     if (event == 'merkle') {
       return (key: 'merkle', label: 'Building Merkle tree');
@@ -881,11 +936,11 @@ class _UploadProgressDialogState extends State<_UploadProgressDialog> {
     }
     if (event.startsWith('peers:')) {
       final n = event.split(':')[1];
-      return (key: 'relay', label: 'Uploading to $n peers');
+      return (key: 'relay', label: 'Transferring to $n peers');
     }
     if (event.startsWith('peer:')) {
       final p = event.split(':');
-      return (key: 'relay', label: 'Uploading to peers  (${p[1]} / ${p[2]} done)');
+      return (key: 'relay', label: 'Transferring to peers  (${p[1]} / ${p[2]} done)');
     }
     return (key: event, label: event);
   }
@@ -903,87 +958,198 @@ class _UploadProgressDialogState extends State<_UploadProgressDialog> {
         _steps.add(_Step(key: parsed.key, label: parsed.label));
       }
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.animateTo(
-          _scroll.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
   }
 
-  void _onDone() {
+  void _onStreamDone() {
     setState(() {
       for (final s in _steps) {
         s.done = true;
       }
+      _isDone = true;
+    });
+  }
+
+  void _onError(Object err) {
+    setState(() {
+      for (final s in _steps) {
+        s.done = true;
+      }
+      _error = err.toString();
+      _isDone = true;
     });
   }
 
   @override
   void dispose() {
     _sub.cancel();
-    _scroll.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final isSuccess = _isDone && _error == null;
+
     return AlertDialog(
       backgroundColor: kCardColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: const Text(
-        'Uploading',
-        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 17),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+      title: Row(
+        children: [
+          if (!_isDone)
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.cyanAccent,
+              ),
+            )
+          else
+            Icon(
+              isSuccess ? Icons.check_circle_rounded : Icons.error_rounded,
+              color: isSuccess ? Colors.greenAccent : Colors.redAccent,
+              size: 20,
+            ),
+          const SizedBox(width: 10),
+          Text(
+            _isDone
+                ? (isSuccess ? 'Upload Complete' : 'Upload Failed')
+                : 'Uploading…',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 17,
+            ),
+          ),
+        ],
       ),
       content: SizedBox(
         width: double.maxFinite,
-        height: 300,
-        child: _steps.isEmpty
-            ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
-            : ListView.builder(
-                controller: _scroll,
-                itemCount: _steps.length,
-                itemBuilder: (_, i) {
-                  final step = _steps[i];
-                  final isActive = !step.done;
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 7),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: isActive
-                              ? const CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.cyanAccent,
-                                )
-                              : const Icon(
-                                  Icons.check_circle_rounded,
-                                  color: Colors.greenAccent,
-                                  size: 20,
-                                ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            step.label,
-                            style: TextStyle(
-                              color: isActive ? Colors.white : Colors.white54,
-                              fontSize: 13,
-                              fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_steps.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: CircularProgressIndicator(color: Colors.cyanAccent),
+                ),
+              )
+            else
+              ..._steps.map((step) => _buildStepRow(step)),
+
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+                ),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                ),
               ),
+            ],
+          ],
+        ),
+      ),
+      actions: _isDone
+          ? [
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: ElevatedButton(
+                  onPressed: () {
+                    if (isSuccess) {
+                      widget.onDone?.call();
+                    } else {
+                      Navigator.of(context).pop();
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: Ink(
+                    decoration: BoxDecoration(
+                      gradient: isSuccess
+                          ? kPrimaryGradient
+                          : const LinearGradient(
+                              colors: [Colors.redAccent, Colors.red],
+                            ),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Container(
+                      alignment: Alignment.center,
+                      child: Text(
+                        isSuccess ? 'Done' : 'Close',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ]
+          : null,
+    );
+  }
+
+  Widget _buildStepRow(_Step step) {
+    final isActive = !step.done;
+    final icon = _icons[step.key] ?? Icons.circle_outlined;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Status icon / spinner
+          SizedBox(
+            width: 22,
+            height: 22,
+            child: isActive
+                ? const CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.cyanAccent,
+                  )
+                : Icon(
+                    Icons.check_circle_rounded,
+                    color: Colors.greenAccent,
+                    size: 22,
+                  ),
+          ),
+          const SizedBox(width: 12),
+          // Step icon
+          Icon(
+            icon,
+            size: 16,
+            color: isActive ? Colors.cyanAccent.withOpacity(0.8) : Colors.white24,
+          ),
+          const SizedBox(width: 8),
+          // Label
+          Expanded(
+            child: Text(
+              step.label,
+              style: TextStyle(
+                color: isActive ? Colors.white : Colors.white38,
+                fontSize: 13,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

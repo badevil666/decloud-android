@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants.dart';
@@ -551,12 +552,20 @@ class _ContractsSectionState extends State<_ContractsSection> {
   bool _loading = true;
   String? _error;
   bool _autoSign = true;
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
     _loadAutoSignPref();
     _load();
+    _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadAutoSignPref() async {
@@ -574,6 +583,19 @@ class _ContractsSectionState extends State<_ContractsSection> {
     try {
       final deals = await DealService.fetchAllDeals();
       if (mounted) setState(() { _deals = deals; _loading = false; });
+
+      if (_autoSign) {
+        // Sign any deals that still need the client's signature
+        final unsigned = deals.where((d) =>
+          (d.status == 'PENDING' || d.status == 'PEER_SIGNED') && !d.clientSigned
+        ).toList();
+        for (final deal in unsigned) {
+          try {
+            await DealService.signAndSubmitDeal(deal);
+          } catch (_) {}
+        }
+        if (unsigned.isNotEmpty) _load();
+      }
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
     }

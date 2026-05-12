@@ -32,7 +32,7 @@ class WalletService {
       throw Exception('Invalid mnemonic');
     }
 
-    await disconnect(); // wipe any previous wallet first
+    await disconnect();
 
     final privateKey = MnemonicService.derivePrivateKey(mnemonic);
     final address = privateKey.address;
@@ -41,6 +41,25 @@ class WalletService {
     assert(privateKeyHex.length == 64);
 
     await SecureStorage.write(_keyPrivateKey, privateKeyHex);
+    await SecureStorage.write(_keyAddress, address.hex);
+
+    return address;
+  }
+
+  static Future<EthereumAddress> importWalletFromPrivateKey(String rawKey) async {
+    // Accept with or without 0x prefix
+    final hex = rawKey.trim().replaceFirst(RegExp(r'^0x'), '');
+
+    if (hex.length != 64 || !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(hex)) {
+      throw Exception('Invalid private key — must be 64 hex characters.');
+    }
+
+    await disconnect();
+
+    final privateKey = EthPrivateKey.fromHex(hex);
+    final address = privateKey.address;
+
+    await SecureStorage.write(_keyPrivateKey, hex);
     await SecureStorage.write(_keyAddress, address.hex);
 
     return address;
